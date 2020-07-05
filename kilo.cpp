@@ -55,6 +55,7 @@
 #include <signal.h>
 #include <utility>
 #include <stdexcept>
+#include <string_view>
 
 /* Syntax highlight types */
 #define HL_NORMAL 0
@@ -72,7 +73,7 @@
 
 struct editorSyntax
 {
-    char **filematch;
+    char **extensions;
     char **keywords;
     char singleline_comment_start[3];
     char multiline_comment_start[3];
@@ -630,25 +631,21 @@ int editorSyntaxToColor(int hl)
 
 /* Select the syntax highlight scheme depending on the filename,
  * setting it in the global state E.syntax. */
-void editorSelectSyntaxHighlight(char *filename)
+void editorSelectSyntaxHighlight(const std::string_view &&filename)
 {
     for (unsigned int j = 0; j < HLDB_ENTRIES; j++)
     {
         struct editorSyntax *s = HLDB + j;
         unsigned int i = 0;
-        while (s->filematch[i])
+        while (s->extensions[++i])
         {
-            char *p;
-            int patlen = strlen(s->filematch[i]);
-            if ((p = strstr(filename, s->filematch[i])) != NULL)
+            auto extension = std::string_view(s->extensions[i]);
+            auto position = filename.find_last_of(extension);
+            if ((position != std::string_view::npos) && ((filename.length() - position) == extension.length()))
             {
-                if (s->filematch[i][0] != '.' || p[patlen] == '\0')
-                {
-                    E.syntax = s;
-                    return;
-                }
+                E.syntax = s;
+                return;
             }
-            i++;
         }
     }
 }
