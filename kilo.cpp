@@ -438,6 +438,9 @@ void getWindowSize(int ifd, int ofd, int *rows, int *cols)
         }
 
         auto position = getCursorPosition(ifd, ofd);
+        *rows = position.first;
+        *cols = position.second;
+
         /* Restore position. */
         char seq[32];
         snprintf(seq, 32, "\x1b[%d;%dH", orig_position.first, orig_position.second);
@@ -669,7 +672,6 @@ void editorSelectSyntaxHighlight(const std::string_view &&filename)
     for (auto &syntax : HLDB)
     {
 
-        auto i = 0;
         for (const auto &raw_extension : syntax.extensions)
         {
             std::string_view extension(raw_extension);
@@ -730,7 +732,7 @@ void editorUpdateRow(erow *row)
 
 /* Insert a row at the specified position, shifting the other rows on the bottom
  * if required. */
-void editorInsertRow(int at, char *s, size_t len)
+void editorInsertRow(int at, const char *s, size_t len)
 {
     if (at > E.numrows)
         return;
@@ -1523,6 +1525,7 @@ bool editorProcessKeypress(int fd)
     }
 
     quit_times = KILO_QUIT_TIMES; /* Reset it to the original value. */
+    return true;
 }
 
 int editorFileWasModified(void)
