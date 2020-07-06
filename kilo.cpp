@@ -56,6 +56,7 @@
 #include <utility>
 #include <stdexcept>
 #include <string_view>
+#include <iostream>
 
 /* Syntax highlight types */
 #define HL_NORMAL 0
@@ -633,13 +634,13 @@ int editorSyntaxToColor(int hl)
  * setting it in the global state E.syntax. */
 void editorSelectSyntaxHighlight(const std::string_view &&filename)
 {
-    for (unsigned int j = 0; j < HLDB_ENTRIES; j++)
+    for (auto j = 0; j < HLDB_ENTRIES; j++)
     {
-        struct editorSyntax *s = HLDB + j;
-        unsigned int i = 0;
+        auto *s = HLDB + j;
+        auto i = 0;
         while (s->extensions[++i])
         {
-            auto extension = std::string_view(s->extensions[i]);
+            std::string_view extension(s->extensions[i]);
             auto position = filename.find_last_of(extension);
             if ((position != std::string_view::npos) && ((filename.length() - position) == extension.length()))
             {
@@ -1185,6 +1186,7 @@ void editorRefreshScreen(void)
 
 /* Set an editor status message for the second line of the status, at the
  * end of the screen. */
+
 void editorSetStatusMessage(const char *fmt, ...)
 {
     va_list ap;
