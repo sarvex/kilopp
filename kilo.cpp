@@ -153,7 +153,6 @@ struct editorConfig
     int screenrows; /* Number of rows that we can show */
     int screencols; /* Number of cols that we can show */
     int numrows;    /* Number of rows */
-    int rawmode;    /* Is terminal raw mode enabled? */
     erow *row;      /* Rows */
     int dirty;      /* File modified but not saved. */
     char *filename; /* Currently open filename */
@@ -249,62 +248,55 @@ struct editorSyntax HLDB[] = {
 
 /* ======================= Low level terminal handling ====================== */
 
-static struct termios orig_termios; /* In order to restore at exit.*/
-
-void disableRawMode(int fd)
+class raw_mode
 {
-    /* Don't even check the return value as it's too late. */
-    if (E.rawmode)
+public:
+    raw_mode(const raw_mode &) = delete;
+    raw_mode &operator=(const raw_mode &) = delete;
+
+    raw_mode()
     {
-        tcsetattr(fd, TCSAFLUSH, &orig_termios);
-        E.rawmode = 0;
-    }
-}
+        struct termios raw;
 
-/* Called at exit to avoid remaining in raw mode. */
-void editorAtExit(void)
-{
-    disableRawMode(STDIN_FILENO);
-}
+        if (!isatty(STDIN_FILENO))
+        {
+            throw std::runtime_error("stdin isn't a TTY");
+        }
+        if (tcgetattr(STDIN_FILENO, &previous_state) == -1)
+        {
+            throw std::runtime_error("Unable to get the current terminal state");
+        }
 
-/* Raw mode: 1960 magic shit. */
-int enableRawMode(int fd)
-{
-    struct termios raw;
-
-    if (E.rawmode)
-        return 0; /* Already enabled. */
-    if (!isatty(STDIN_FILENO))
-        goto fatal;
-    atexit(editorAtExit);
-    if (tcgetattr(fd, &orig_termios) == -1)
-        goto fatal;
-
-    raw = orig_termios; /* modify the original mode */
-    /* input modes: no break, no CR to NL, no parity check, no strip char,
+        raw = previous_state; /* modify the original mode */
+        /* input modes: no break, no CR to NL, no parity check, no strip char,
      * no start/stop output control. */
-    raw.c_iflag &= ~(BRKINT | ICRNL | INPCK | ISTRIP | IXON);
-    /* output modes - disable post processing */
-    raw.c_oflag &= ~(OPOST);
-    /* control modes - set 8 bit chars */
-    raw.c_cflag |= (CS8);
-    /* local modes - choing off, canonical off, no extended functions,
+        raw.c_iflag &= ~(BRKINT | ICRNL | INPCK | ISTRIP | IXON);
+        /* output modes - disable post processing */
+        raw.c_oflag &= ~(OPOST);
+        /* control modes - set 8 bit chars */
+        raw.c_cflag |= (CS8);
+        /* local modes - choing off, canonical off, no extended functions,
      * no signal chars (^Z,^C) */
-    raw.c_lflag &= ~(ECHO | ICANON | IEXTEN | ISIG);
-    /* control chars - set return condition: min number of bytes and timer. */
-    raw.c_cc[VMIN] = 0;  /* Return each byte, or zero for timeout. */
-    raw.c_cc[VTIME] = 1; /* 100 ms timeout (unit is tens of second). */
+        raw.c_lflag &= ~(ECHO | ICANON | IEXTEN | ISIG);
+        /* control chars - set return condition: min number of bytes and timer. */
+        raw.c_cc[VMIN] = 0;  /* Return each byte, or zero for timeout. */
+        raw.c_cc[VTIME] = 1; /* 100 ms timeout (unit is tens of second). */
 
-    /* put terminal in raw mode after flushing */
-    if (tcsetattr(fd, TCSAFLUSH, &raw) < 0)
-        goto fatal;
-    E.rawmode = 1;
-    return 0;
+        /* put terminal in raw mode after flushing */
+        if (tcsetattr(STDIN_FILENO, TCSAFLUSH, &raw) < 0)
+        {
+            throw std::runtime_error("Unable to set the terminal to raw mode");
+        }
+    }
 
-fatal:
-    errno = ENOTTY;
-    return -1;
-}
+    ~raw_mode()
+    {
+        tcsetattr(STDIN_FILENO, TCSAFLUSH, &previous_state);
+    }
+
+private:
+    struct termios previous_state;
+};
 
 /* Read a key from the terminal put in raw mode, trying to handle
  * escape sequences. */
@@ -1467,7 +1459,7 @@ void editorMoveCursor(int key)
 /* Process events arriving from the standard input, which is, the user
  * is typing stuff on the terminal. */
 #define KILO_QUIT_TIMES 3
-void editorProcessKeypress(int fd)
+bool editorProcessKeypress(int fd)
 {
     /* When the file is modified, requires Ctrl-q to be pressed N times
      * before actually quitting. */
@@ -1491,10 +1483,9 @@ void editorProcessKeypress(int fd)
                                    "Press Ctrl-Q %d more times to quit.",
                                    quit_times);
             quit_times--;
-            return;
+            return true;
         }
-        exit(0);
-        break;
+        return false;
     case CTRL_S: /* Ctrl-s */
         editorSave();
         break;
@@ -1587,13 +1578,13 @@ int main(int argc, char **argv)
     initEditor();
     editorSelectSyntaxHighlight(argv[1]);
     editorOpen(argv[1]);
-    enableRawMode(STDIN_FILENO);
+    raw_mode rm;
+
     editorSetStatusMessage(
         "HELP: Ctrl-S = save | Ctrl-Q = quit | Ctrl-F = find");
-    while (1)
+    do
     {
         editorRefreshScreen();
-        editorProcessKeypress(STDIN_FILENO);
-    }
+    } while (editorProcessKeypress(STDIN_FILENO));
     return 0;
 }
