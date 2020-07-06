@@ -57,6 +57,7 @@
 #include <stdexcept>
 #include <string_view>
 #include <iostream>
+#include <vector>
 
 /* Syntax highlight types */
 #define HL_NORMAL 0
@@ -71,6 +72,50 @@
 
 #define HL_HIGHLIGHT_STRINGS (1 << 0)
 #define HL_HIGHLIGHT_NUMBERS (1 << 1)
+
+class file_descriptor
+{
+public:
+    file_descriptor(int fd, bool should_close) : fd(fd),
+                                                 should_close(should_close)
+    {
+        if (fd == -1)
+        {
+            throw std::runtime_error("Error opening a file");
+        }
+    }
+
+    file_descriptor(const file_descriptor &) = delete;
+    file_descriptor &operator=(const file_descriptor &) = delete;
+
+    void truncate(size_t size)
+    {
+        if (ftruncate(fd, size) == -1)
+        {
+            throw std::runtime_error("Error truncating");
+        }
+    }
+
+    void write(const std::vector<char> &buffer)
+    {
+        if (::write(fd, buffer.data(), buffer.size()) == -1)
+        {
+            throw std::runtime_error("Write error");
+        }
+    }
+
+    ~file_descriptor()
+    {
+        if (should_close && fd != -1)
+        {
+            close(fd);
+        }
+    }
+
+private:
+    int fd = -1;
+    bool should_close;
+};
 
 struct editorSyntax
 {
@@ -751,28 +796,26 @@ void editorDelRow(int at)
  * Returns the pointer to the heap-allocated string and populate the
  * integer pointed by 'buflen' with the size of the string, escluding
  * the final nulterm. */
-char *editorRowsToString(int *buflen)
+std::vector<char> editorRowsToString()
 {
-    char *buf = NULL, *p;
-    int totlen = 0;
-    int j;
+    size_t length = 0;
 
     /* Compute count of bytes */
-    for (j = 0; j < E.numrows; j++)
-        totlen += E.row[j].size + 1; /* +1 is for "\n" at end of every row */
-    *buflen = totlen;
-    totlen++; /* Also make space for nulterm */
-
-    p = buf = static_cast<char *>(malloc(totlen));
-    for (j = 0; j < E.numrows; j++)
+    for (auto i = 0; i < E.numrows; i++)
     {
-        memcpy(p, E.row[j].chars, E.row[j].size);
-        p += E.row[j].size;
-        *p = '\n';
-        p++;
+        length += E.row[i].size + 1; /* +1 is for "\n" at end of every row */
     }
-    *p = '\0';
-    return buf;
+
+    std::vector<char> result;
+    result.reserve(length);
+    for (auto row_index = 0; row_index < E.numrows; row_index++)
+    {
+        auto const row = E.row[row_index].chars;
+        result.insert(result.end(), row, row + E.row[row_index].size);
+        result.push_back('\n');
+    }
+
+    return result;
 }
 
 /* Insert a character at the specified position in a row, moving the remaining
@@ -978,30 +1021,23 @@ int editorOpen(char *filename)
 /* Save the current file on disk. Return 0 on success, 1 on error. */
 int editorSave(void)
 {
-    int len;
-    char *buf = editorRowsToString(&len);
-    int fd = open(E.filename, O_RDWR | O_CREAT, 0644);
-    if (fd == -1)
-        goto writeerr;
+    const auto buffer = editorRowsToString();
+    const auto length = buffer.size();
 
-    /* Use truncate + a single write(2) call in order to make saving
-     * a bit safer, under the limits of what we can do in a small editor. */
-    if (ftruncate(fd, len) == -1)
-        goto writeerr;
-    if (write(fd, buf, len) != len)
-        goto writeerr;
+    try
+    {
+        file_descriptor fd(open(E.filename, O_RDWR | O_CREAT, 0644), true);
 
-    close(fd);
-    free(buf);
-    E.dirty = 0;
-    editorSetStatusMessage("%d bytes written on disk", len);
-    return 0;
+        fd.truncate(length);
+        fd.write(buffer);
+        E.dirty = 0;
+        editorSetStatusMessage("%d bytes written on disk", length);
+    }
+    catch (const std::runtime_error &e)
+    {
+        editorSetStatusMessage("Can't save! I/O error: %s", strerror(errno));
+    }
 
-writeerr:
-    free(buf);
-    if (fd != -1)
-        close(fd);
-    editorSetStatusMessage("Can't save! I/O error: %s", strerror(errno));
     return 1;
 }
 
