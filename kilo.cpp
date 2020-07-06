@@ -120,8 +120,8 @@ private:
 
 struct editorSyntax
 {
-    char **extensions;
-    char **keywords;
+    std::vector<const char *> extensions;
+    std::vector<const char *> keywords;
     char singleline_comment_start[3];
     char multiline_comment_start[3];
     char multiline_comment_end[3];
@@ -216,33 +216,33 @@ void editorSetStatusMessage(const char *fmt, ...);
  * There is no support to highlight patterns currently. */
 
 /* C / C++ */
-char *C_HL_extensions[] = {".c", ".h", ".cpp", ".hpp", ".cc", NULL};
-char *C_HL_keywords[] = {
-    /* C Keywords */
-    "auto", "break", "case", "continue", "default", "do", "else", "enum",
-    "extern", "for", "goto", "if", "register", "return", "sizeof", "static",
-    "struct", "switch", "typedef", "union", "volatile", "while", "NULL",
-
-    /* C++ Keywords */
-    "alignas", "alignof", "and", "and_eq", "asm", "bitand", "bitor", "class",
-    "compl", "constexpr", "const_cast", "deltype", "delete", "dynamic_cast",
-    "explicit", "export", "false", "friend", "inline", "mutable", "namespace",
-    "new", "noexcept", "not", "not_eq", "nullptr", "operator", "or", "or_eq",
-    "private", "protected", "public", "reinterpret_cast", "static_assert",
-    "static_cast", "template", "this", "thread_local", "throw", "true", "try",
-    "typeid", "typename", "virtual", "xor", "xor_eq",
-
-    /* C types */
-    "int|", "long|", "double|", "float|", "char|", "unsigned|", "signed|",
-    "void|", "short|", "auto|", "const|", "bool|", NULL};
 
 /* Here we define an array of syntax highlights by extensions, keywords,
  * comments delimiters and flags. */
 std::array<struct editorSyntax, 1> HLDB = {
     {/* C / C++ */
-     C_HL_extensions,
-     C_HL_keywords,
-     "//", "/*", "*/",
+     std::vector<const char *>{".c", ".h", ".cpp", ".hpp", ".cc"},
+     std::vector<const char *>{
+         /* C Keywords */
+         "auto", "break", "case", "continue", "default", "do", "else", "enum",
+         "extern", "for", "goto", "if", "register", "return", "sizeof", "static",
+         "struct", "switch", "typedef", "union", "volatile", "while", "NULL",
+
+         /* C++ Keywords */
+         "alignas", "alignof", "and", "and_eq", "asm", "bitand", "bitor", "class",
+         "compl", "constexpr", "const_cast", "deltype", "delete", "dynamic_cast",
+         "explicit", "export", "false", "friend", "inline", "mutable", "namespace",
+         "new", "noexcept", "not", "not_eq", "nullptr", "operator", "or", "or_eq",
+         "private", "protected", "public", "reinterpret_cast", "static_assert",
+         "static_cast", "template", "this", "thread_local", "throw", "true", "try",
+         "typeid", "typename", "virtual", "xor", "xor_eq",
+
+         /* C types */
+         "int|", "long|", "double|", "float|", "char|", "unsigned|", "signed|",
+         "void|", "short|", "auto|", "const|", "bool|"},
+     "//",
+     "/*",
+     "*/",
      HL_HIGHLIGHT_STRINGS | HL_HIGHLIGHT_NUMBERS}};
 
 /* ======================= Low level terminal handling ====================== */
@@ -484,7 +484,7 @@ void editorUpdateSyntax(erow *row)
 
     int i, prev_sep, in_string, in_comment;
     char *p;
-    char **keywords = E.syntax->keywords;
+    const auto &keywords = E.syntax->keywords;
     char *scs = E.syntax->singleline_comment_start;
     char *mcs = E.syntax->multiline_comment_start;
     char *mce = E.syntax->multiline_comment_end;
@@ -603,28 +603,24 @@ void editorUpdateSyntax(erow *row)
         /* Handle keywords and lib calls */
         if (prev_sep)
         {
-            int j;
-            for (j = 0; keywords[j]; j++)
+
+            for (const auto &word : keywords)
             {
-                int klen = strlen(keywords[j]);
-                int kw2 = keywords[j][klen - 1] == '|';
+                int klen = strlen(word);
+                int kw2 = word[klen - 1] == '|';
                 if (kw2)
                     klen--;
 
-                if (!memcmp(p, keywords[j], klen) &&
+                if (!memcmp(p, word, klen) &&
                     is_separator(*(p + klen)))
                 {
                     /* Keyword */
                     memset(row->hl + i, kw2 ? HL_KEYWORD2 : HL_KEYWORD1, klen);
                     p += klen;
                     i += klen;
+                    prev_sep = 0;
                     break;
                 }
-            }
-            if (keywords[j] != NULL)
-            {
-                prev_sep = 0;
-                continue; /* We had a keyword match */
             }
         }
 
@@ -674,9 +670,9 @@ void editorSelectSyntaxHighlight(const std::string_view &&filename)
     {
 
         auto i = 0;
-        while (syntax.extensions[++i])
+        for (const auto &raw_extension : syntax.extensions)
         {
-            std::string_view extension(syntax.extensions[i]);
+            std::string_view extension(raw_extension);
             auto position = filename.find_last_of(extension);
             if ((position != std::string_view::npos) && ((filename.length() - position) == extension.length()))
             {
