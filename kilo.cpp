@@ -58,6 +58,7 @@
 #include <string_view>
 #include <iostream>
 #include <vector>
+#include <array>
 
 /* Syntax highlight types */
 #define HL_NORMAL 0
@@ -237,14 +238,12 @@ char *C_HL_keywords[] = {
 
 /* Here we define an array of syntax highlights by extensions, keywords,
  * comments delimiters and flags. */
-struct editorSyntax HLDB[] = {
+std::array<struct editorSyntax, 1> HLDB = {
     {/* C / C++ */
      C_HL_extensions,
      C_HL_keywords,
      "//", "/*", "*/",
      HL_HIGHLIGHT_STRINGS | HL_HIGHLIGHT_NUMBERS}};
-
-#define HLDB_ENTRIES (sizeof(HLDB) / sizeof(HLDB[0]))
 
 /* ======================= Low level terminal handling ====================== */
 
@@ -671,17 +670,17 @@ int editorSyntaxToColor(int hl)
  * setting it in the global state E.syntax. */
 void editorSelectSyntaxHighlight(const std::string_view &&filename)
 {
-    for (auto j = 0; j < HLDB_ENTRIES; j++)
+    for (auto &syntax : HLDB)
     {
-        auto *s = HLDB + j;
+
         auto i = 0;
-        while (s->extensions[++i])
+        while (syntax.extensions[++i])
         {
-            std::string_view extension(s->extensions[i]);
+            std::string_view extension(syntax.extensions[i]);
             auto position = filename.find_last_of(extension);
             if ((position != std::string_view::npos) && ((filename.length() - position) == extension.length()))
             {
-                E.syntax = s;
+                E.syntax = &syntax;
                 return;
             }
         }
