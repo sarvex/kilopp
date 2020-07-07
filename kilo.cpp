@@ -59,6 +59,7 @@
 #include <iostream>
 #include <vector>
 #include <array>
+#include <memory>
 
 /* Syntax highlight types */
 #define HL_NORMAL 0
@@ -129,8 +130,26 @@ struct editorSyntax
 };
 
 /* This structure represents a single line of the file we are editing. */
-typedef struct erow
+struct erow
 {
+    erow(char *s, int len, int idx)
+    {
+
+        size = len;
+        chars = static_cast<char *>(malloc(len + 1));
+        memcpy(chars, s, len + 1);
+        hl = NULL;
+        hl_oc = 0;
+        render = NULL;
+        rsize = 0;
+        idx = idx;
+    }
+    erow(const erow &) = delete;
+    erow &operator=(const erow &) = delete;
+
+    erow(erow &&) = default;
+    erow &operator=(erow &&other) = default;
+
     int idx;           /* Row index in the file, zero-based. */
     int size;          /* Size of the row, excluding the null term. */
     int rsize;         /* Size of the rendered row. */
@@ -139,7 +158,7 @@ typedef struct erow
     unsigned char *hl; /* Syntax highlight type for each character in render.*/
     int hl_oc;         /* Row had open comment at end in last syntax highlight
                            check. */
-} erow;
+};
 
 typedef struct hlcolor
 {
@@ -148,15 +167,14 @@ typedef struct hlcolor
 
 struct editorConfig
 {
-    int cx, cy;     /* Cursor x and y position in characters */
-    int rowoff;     /* Offset of row displayed. */
-    int coloff;     /* Offset of column displayed. */
-    int screenrows; /* Number of rows that we can show */
-    int screencols; /* Number of cols that we can show */
-    int numrows;    /* Number of rows */
-    erow *row;      /* Rows */
-    int dirty;      /* File modified but not saved. */
-    char *filename; /* Currently open filename */
+    int cx, cy;            /* Cursor x and y position in characters */
+    int rowoff;            /* Offset of row displayed. */
+    int coloff;            /* Offset of column displayed. */
+    int screenrows;        /* Number of rows that we can show */
+    int screencols;        /* Number of cols that we can show */
+    std::vector<erow> row; /* Rows */
+    int dirty;             /* File modified but not saved. */
+    char *filename;        /* Currently open filename */
     char statusmsg[80];
     time_t statusmsg_time;
     struct editorSyntax *syntax; /* Current syntax highlight, or NULL. */
@@ -637,7 +655,7 @@ void editorUpdateSyntax(erow *row)
      * state changed. This may recursively affect all the following rows
      * in the file. */
     int oc = editorRowHasOpenComment(row);
-    if (row->hl_oc != oc && row->idx + 1 < E.numrows)
+    if (row->hl_oc != oc && row->idx + 1 < E.row.size())
         editorUpdateSyntax(&E.row[row->idx + 1]);
     row->hl_oc = oc;
 }
@@ -734,34 +752,12 @@ void editorUpdateRow(erow *row)
  * if required. */
 void editorInsertRow(int at, const char *s, size_t len)
 {
-    if (at > E.numrows)
+    if (at > E.row.size())
         return;
-    E.row = static_cast<erow *>(realloc(E.row, sizeof(erow) * (E.numrows + 1)));
-    if (at != E.numrows)
-    {
-        memmove(E.row + at + 1, E.row + at, sizeof(E.row[0]) * (E.numrows - at));
-        for (int j = at + 1; j <= E.numrows; j++)
-            E.row[j].idx++;
-    }
-    E.row[at].size = len;
-    E.row[at].chars = static_cast<char *>(malloc(len + 1));
-    memcpy(E.row[at].chars, s, len + 1);
-    E.row[at].hl = NULL;
-    E.row[at].hl_oc = 0;
-    E.row[at].render = NULL;
-    E.row[at].rsize = 0;
-    E.row[at].idx = at;
-    editorUpdateRow(E.row + at);
-    E.numrows++;
-    E.dirty++;
-}
 
-/* Free row's heap allocated stuff. */
-void editorFreeRow(erow *row)
-{
-    free(row->render);
-    free(row->chars);
-    free(row->hl);
+    E.row.emplace(E.row.begin() + at, const_cast<char *>(s), len, at);
+    editorUpdateRow(&E.row[at]);
+    E.dirty++;
 }
 
 /* Remove the row at the specified position, shifting the remainign on the
@@ -770,14 +766,10 @@ void editorDelRow(int at)
 {
     erow *row;
 
-    if (at >= E.numrows)
+    if (at >= E.row.size())
         return;
-    row = E.row + at;
-    editorFreeRow(row);
-    memmove(E.row + at, E.row + at + 1, sizeof(E.row[0]) * (E.numrows - at - 1));
-    for (int j = at; j < E.numrows - 1; j++)
-        E.row[j].idx++;
-    E.numrows--;
+
+    E.row.erase(E.row.begin() + at);
     E.dirty++;
 }
 
@@ -790,17 +782,17 @@ std::vector<char> editorRowsToString()
     size_t length = 0;
 
     /* Compute count of bytes */
-    for (auto i = 0; i < E.numrows; i++)
+    for (auto const &row : E.row)
     {
-        length += E.row[i].size + 1; /* +1 is for "\n" at end of every row */
+        length += row.size + 1; /* +1 is for "\n" at end of every row */
     }
 
     std::vector<char> result;
     result.reserve(length);
-    for (auto row_index = 0; row_index < E.numrows; row_index++)
+    for (auto const &row_struct : E.row)
     {
-        auto const row = E.row[row_index].chars;
-        result.insert(result.end(), row, row + E.row[row_index].size);
+        auto const row = row_struct.chars;
+        result.insert(result.end(), row, row + row_struct.size);
         result.push_back('\n');
     }
 
@@ -862,14 +854,14 @@ void editorInsertChar(int c)
 {
     int filerow = E.rowoff + E.cy;
     int filecol = E.coloff + E.cx;
-    erow *row = (filerow >= E.numrows) ? NULL : &E.row[filerow];
+    erow *row = (filerow >= E.row.size()) ? NULL : &E.row[filerow];
 
     /* If the row where the cursor is currently located does not exist in our
      * logical representaion of the file, add enough empty rows as needed. */
     if (!row)
     {
-        while (E.numrows <= filerow)
-            editorInsertRow(E.numrows, "", 0);
+        while (E.row.size() <= filerow)
+            editorInsertRow(E.row.size(), "", 0);
     }
     row = &E.row[filerow];
     editorRowInsertChar(row, filecol, c);
@@ -886,11 +878,11 @@ void editorInsertNewline(void)
 {
     int filerow = E.rowoff + E.cy;
     int filecol = E.coloff + E.cx;
-    erow *row = (filerow >= E.numrows) ? NULL : &E.row[filerow];
+    erow *row = (filerow >= E.row.size()) ? NULL : &E.row[filerow];
 
     if (!row)
     {
-        if (filerow == E.numrows)
+        if (filerow == E.row.size())
         {
             editorInsertRow(filerow, "", 0);
             goto fixcursor;
@@ -932,7 +924,7 @@ void editorDelChar()
 {
     int filerow = E.rowoff + E.cy;
     int filecol = E.coloff + E.cx;
-    erow *row = (filerow >= E.numrows) ? NULL : &E.row[filerow];
+    erow *row = (filerow >= E.row.size()) ? NULL : &E.row[filerow];
 
     if (!row || (filecol == 0 && filerow == 0))
         return;
@@ -999,7 +991,7 @@ int editorOpen(char *filename)
     {
         if (linelen && (line[linelen - 1] == '\n' || line[linelen - 1] == '\r'))
             line[--linelen] = '\0';
-        editorInsertRow(E.numrows, line, linelen);
+        editorInsertRow(E.row.size(), line, linelen);
     }
     free(line);
     fclose(fp);
@@ -1078,9 +1070,9 @@ void editorRefreshScreen(void)
     {
         int filerow = E.rowoff + y;
 
-        if (filerow >= E.numrows)
+        if (filerow >= E.row.size())
         {
-            if (E.numrows == 0 && y == E.screenrows / 3)
+            if (E.row.size() == 0 && y == E.screenrows / 3)
             {
                 char welcome[80];
                 int welcomelen = snprintf(welcome, sizeof(welcome),
@@ -1159,9 +1151,9 @@ void editorRefreshScreen(void)
     abAppend(&ab, "\x1b[7m", 4);
     char status[80], rstatus[80];
     int len = snprintf(status, sizeof(status), "%.20s - %d lines %s",
-                       E.filename, E.numrows, E.dirty ? "(modified)" : "");
+                       E.filename, E.row.size(), E.dirty ? "(modified)" : "");
     int rlen = snprintf(rstatus, sizeof(rstatus),
-                        "%d/%d", E.rowoff + E.cy + 1, E.numrows);
+                        "%d/%d", E.rowoff + E.cy + 1, E.row.size());
     if (len > E.screencols)
         len = E.screencols;
     abAppend(&ab, status, len);
@@ -1192,7 +1184,7 @@ void editorRefreshScreen(void)
     int j;
     int cx = 1;
     int filerow = E.rowoff + E.cy;
-    erow *row = (filerow >= E.numrows) ? NULL : &E.row[filerow];
+    erow *row = (filerow >= E.row.size()) ? NULL : &E.row[filerow];
     if (row)
     {
         for (j = E.coloff; j < (E.cx + E.coloff); j++)
@@ -1302,12 +1294,12 @@ void editorFind(int fd)
             int match_offset = 0;
             int i, current = last_match;
 
-            for (i = 0; i < E.numrows; i++)
+            for (i = 0; i < E.row.size(); i++)
             {
                 current += find_next;
                 if (current == -1)
-                    current = E.numrows - 1;
-                else if (current == E.numrows)
+                    current = E.row.size() - 1;
+                else if (current == E.row.size())
                     current = 0;
                 match = strstr(E.row[current].render, query);
                 if (match)
@@ -1356,7 +1348,7 @@ void editorMoveCursor(int key)
     int filerow = E.rowoff + E.cy;
     int filecol = E.coloff + E.cx;
     int rowlen;
-    erow *row = (filerow >= E.numrows) ? NULL : &E.row[filerow];
+    erow *row = (filerow >= E.row.size()) ? NULL : &E.row[filerow];
 
     switch (key)
     {
@@ -1424,7 +1416,7 @@ void editorMoveCursor(int key)
         }
         break;
     case ARROW_DOWN:
-        if (filerow < E.numrows)
+        if (filerow < E.row.size())
         {
             if (E.cy == E.screenrows - 1)
             {
@@ -1440,7 +1432,7 @@ void editorMoveCursor(int key)
     /* Fix cx if the current line has not enough chars. */
     filerow = E.rowoff + E.cy;
     filecol = E.coloff + E.cx;
-    row = (filerow >= E.numrows) ? NULL : &E.row[filerow];
+    row = (filerow >= E.row.size()) ? NULL : &E.row[filerow];
     rowlen = row ? row->size : 0;
     if (filecol > rowlen)
     {
@@ -1556,8 +1548,6 @@ void initEditor(void)
     E.cy = 0;
     E.rowoff = 0;
     E.coloff = 0;
-    E.numrows = 0;
-    E.row = NULL;
     E.dirty = 0;
     E.filename = NULL;
     E.syntax = NULL;
