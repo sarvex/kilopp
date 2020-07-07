@@ -173,7 +173,7 @@ struct editorConfig
     int screenrows;        /* Number of rows that we can show */
     int screencols;        /* Number of cols that we can show */
     std::vector<erow> row; /* Rows */
-    int dirty;             /* File modified but not saved. */
+    bool dirty;            /* File modified but not saved. */
     char *filename;        /* Currently open filename */
     char statusmsg[80];
     time_t statusmsg_time;
@@ -757,7 +757,7 @@ void editorInsertRow(int at, const char *s, size_t len)
 
     E.row.emplace(E.row.begin() + at, const_cast<char *>(s), len, at);
     editorUpdateRow(&E.row[at]);
-    E.dirty++;
+    E.dirty = true;
 }
 
 /* Remove the row at the specified position, shifting the remainign on the
@@ -770,7 +770,7 @@ void editorDelRow(int at)
         return;
 
     E.row.erase(E.row.begin() + at);
-    E.dirty++;
+    E.dirty = true;
 }
 
 /* Turn the editor rows into a single heap-allocated string.
@@ -824,7 +824,7 @@ void editorRowInsertChar(erow *row, int at, int c)
     }
     row->chars[at] = c;
     editorUpdateRow(row);
-    E.dirty++;
+    E.dirty = true;
 }
 
 /* Append the string 's' at the end of a row */
@@ -835,7 +835,7 @@ void editorRowAppendString(erow *row, char *s, size_t len)
     row->size += len;
     row->chars[row->size] = '\0';
     editorUpdateRow(row);
-    E.dirty++;
+    E.dirty = true;
 }
 
 /* Delete the character at offset 'at' from the specified row. */
@@ -846,7 +846,7 @@ void editorRowDelChar(erow *row, int at)
     memmove(row->chars + at, row->chars + at + 1, row->size - at);
     editorUpdateRow(row);
     row->size--;
-    E.dirty++;
+    E.dirty = true;
 }
 
 /* Insert the specified char at the current prompt position. */
@@ -869,7 +869,7 @@ void editorInsertChar(int c)
         E.coloff++;
     else
         E.cx++;
-    E.dirty++;
+    E.dirty = true;
 }
 
 /* Inserting a newline is slightly complex as we have to handle inserting a
@@ -958,7 +958,7 @@ void editorDelChar()
     }
     if (row)
         editorUpdateRow(row);
-    E.dirty++;
+    E.dirty = true;
 }
 
 /* Load the specified program in the editor memory and returns 0 on success
@@ -967,7 +967,7 @@ int editorOpen(char *filename)
 {
     FILE *fp;
 
-    E.dirty = 0;
+    E.dirty = false;
     free(E.filename);
     size_t fnlen = strlen(filename) + 1;
     E.filename = static_cast<char *>(malloc(fnlen));
@@ -995,7 +995,7 @@ int editorOpen(char *filename)
     }
     free(line);
     fclose(fp);
-    E.dirty = 0;
+    E.dirty = false;
     return 0;
 }
 
@@ -1011,7 +1011,7 @@ int editorSave(void)
 
         fd.truncate(length);
         fd.write(buffer);
-        E.dirty = 0;
+        E.dirty = false;
         editorSetStatusMessage("%d bytes written on disk", length);
     }
     catch (const std::runtime_error &e)
@@ -1548,7 +1548,7 @@ void initEditor(void)
     E.cy = 0;
     E.rowoff = 0;
     E.coloff = 0;
-    E.dirty = 0;
+    E.dirty = false;
     E.filename = NULL;
     E.syntax = NULL;
     updateWindowSize();
