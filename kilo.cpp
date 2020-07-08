@@ -200,7 +200,7 @@ namespace kilopp
         char *filename;        /* Currently open filename */
         char statusmsg[80];
         time_t statusmsg_time;
-        struct syntax *syntax; /* Current syntax highlight, or NULL. */
+        const syntax *syntax; /* Current syntax highlight, or NULL. */
     };
 
     static struct config E;
@@ -527,9 +527,9 @@ namespace kilopp
         int i, prev_sep, in_string, in_comment;
         char *p;
         const auto &keywords = E.syntax->keywords;
-        char *scs = E.syntax->singleline_comment_start;
-        char *mcs = E.syntax->multiline_comment_start;
-        char *mce = E.syntax->multiline_comment_end;
+        auto scs = E.syntax->singleline_comment_start;
+        auto mcs = E.syntax->multiline_comment_start;
+        auto mce = E.syntax->multiline_comment_end;
 
         /* Point to the first non-space char. */
         p = row.render;
@@ -708,7 +708,7 @@ namespace kilopp
  * setting it in the global state E.syntax. */
     void select_syntax_highlight(const std::string_view &&filename)
     {
-        for (auto &syntax : HLDB)
+        for (const auto &syntax : HLDB)
         {
 
             for (const auto &raw_extension : syntax.extensions)
