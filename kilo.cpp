@@ -324,6 +324,7 @@ namespace kilopp
 
         ~raw_mode()
         {
+            write(STDIN_FILENO, "\x1b[0;0H\033[2J", 10);
             tcsetattr(STDIN_FILENO, TCSAFLUSH, &previous_state);
         }
 
