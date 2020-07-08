@@ -160,6 +160,7 @@ namespace kilopp
             std::swap(rsize, other.rsize);
             other.hl = NULL;
             other.render = NULL;
+            return *this;
         };
 
         ~erow()
@@ -183,11 +184,11 @@ namespace kilopp
 
     struct config
     {
-        int cx, cy;            /* Cursor x and y position in characters */
-        int rowoff;            /* Offset of row displayed. */
-        int coloff;            /* Offset of column displayed. */
-        int screenrows;        /* Number of rows that we can show */
-        int screencols;        /* Number of cols that we can show */
+        size_t cx, cy;         /* Cursor x and y position in characters */
+        size_t rowoff;         /* Offset of row displayed. */
+        size_t coloff;         /* Offset of column displayed. */
+        size_t screenrows;     /* Number of rows that we can show */
+        size_t screencols;     /* Number of cols that we can show */
         std::vector<erow> row; /* Rows */
         bool dirty;            /* File modified but not saved. */
         char *filename;        /* Currently open filename */
@@ -457,7 +458,7 @@ namespace kilopp
     /* Try to get the number of columns in the current terminal. If the ioctl()
  * call fails the function will try to query the terminal itself.
  * Returns 0 on success, -1 on error. */
-    void get_window_size(int ifd, int ofd, int &rows, int &cols)
+    void get_window_size(int ifd, int ofd, size_t &rows, size_t &cols)
     {
         struct winsize ws;
 
@@ -510,7 +511,7 @@ namespace kilopp
 
     /* Set every byte of row->hl (that corresponds to every character in the line)
  * to the right syntax highlight type (HL_* defines). */
-    void update_syntax(erow &row, int row_index)
+    void update_syntax(erow &row, size_t row_index)
     {
         row.hl = static_cast<unsigned char *>(realloc(row.hl, row.rsize));
         memset(row.hl, HL_NORMAL, row.rsize);
@@ -669,7 +670,7 @@ namespace kilopp
         /* Propagate syntax change to the next row if the open commen
      * state changed. This may recursively affect all the following rows
      * in the file. */
-        int oc = has_open_comment(row);
+        bool oc = has_open_comment(row);
         if (row.hl_oc != oc && row_index + 1 < E.row.size())
             update_syntax(E.row[row_index + 1], row_index + 1);
         row.hl_oc = oc;
@@ -721,16 +722,15 @@ namespace kilopp
     /* ======================= Editor rows implementation ======================= */
 
     /* Update the rendered version and the syntax highlight of a row. */
-    void update_row(erow &row, int row_index)
+    void update_row(erow &row, size_t row_index)
     {
         unsigned int tabs = 0, nonprint = 0;
-        int j, idx;
 
         /* Create a version of the row we can directly print on the screen,
      * respecting tabs, substituting non printable characters with '?'. */
         free(row.render);
-        for (j = 0; j < row.chars.size(); j++)
-            if (row.chars[j] == TAB)
+        for (const auto c : row.chars)
+            if (c == TAB)
                 tabs++;
 
         unsigned long long allocsize =
@@ -742,10 +742,10 @@ namespace kilopp
         }
 
         row.render = static_cast<char *>(malloc(row.chars.size() + tabs * 8 + nonprint * 9 + 1));
-        idx = 0;
-        for (j = 0; j < row.chars.size(); j++)
+        auto idx = 0;
+        for (const auto c : row.chars)
         {
-            if (row.chars[j] == TAB)
+            if (c == TAB)
             {
                 row.render[idx++] = ' ';
                 while ((idx + 1) % 8 != 0)
@@ -753,7 +753,7 @@ namespace kilopp
             }
             else
             {
-                row.render[idx++] = row.chars[j];
+                row.render[idx++] = c;
             }
         }
         row.rsize = idx;
@@ -765,7 +765,7 @@ namespace kilopp
 
     /* Insert a row at the specified position, shifting the other rows on the bottom
  * if required. */
-    void insert_row(int at, const char *s)
+    void insert_row(size_t at, const char *s)
     {
         if (at > E.row.size())
             return;
@@ -777,10 +777,8 @@ namespace kilopp
 
     /* Remove the row at the specified position, shifting the remainign on the
  * top. */
-    void delete_row(int at)
+    void delete_row(size_t at)
     {
-        erow *row;
-
         if (at >= E.row.size())
             return;
 
@@ -819,7 +817,7 @@ namespace kilopp
 
     /* Insert a character at the specified position in a row, moving the remaining
  * chars on the right if needed. */
-    void insert_character_to_row(erow &row, int char_index, int c, int row_index)
+    void insert_character_to_row(erow &row, size_t char_index, int c, size_t row_index)
     {
         if (char_index > row.chars.size())
         {
@@ -839,7 +837,7 @@ namespace kilopp
     }
 
     /* Append the string 's' at the end of a row */
-    void append_to_row(erow &row, const char *s, size_t len, int row_index)
+    void append_to_row(erow &row, const char *s, size_t row_index)
     {
         row.chars.append(s);
         update_row(row, row_index);
@@ -847,7 +845,7 @@ namespace kilopp
     }
 
     /* Delete the character at offset 'at' from the specified row. */
-    void delete_character_from_row(erow &row, int at, int row_index)
+    void delete_character_from_row(erow &row, size_t at, size_t row_index)
     {
         if (row.chars.size() <= at)
             return;
@@ -857,10 +855,10 @@ namespace kilopp
     }
 
     /* Insert the specified char at the current prompt position. */
-    void insert_character(int c)
+    void insert_character(char c)
     {
-        int filerow = E.rowoff + E.cy;
-        int filecol = E.coloff + E.cx;
+        const auto filerow = E.rowoff + E.cy;
+        const auto filecol = E.coloff + E.cx;
         erow *row = (filerow >= E.row.size()) ? NULL : &E.row[filerow];
 
         /* If the row where the cursor is currently located does not exist in our
@@ -883,8 +881,8 @@ namespace kilopp
  * newline in the middle of a line, splitting the line as needed. */
     void insert_newline(void)
     {
-        int filerow = E.rowoff + E.cy;
-        int filecol = E.coloff + E.cx;
+        const auto filerow = E.rowoff + E.cy;
+        auto filecol = E.coloff + E.cx;
         erow *row = (filerow >= E.row.size()) ? NULL : &E.row[filerow];
 
         if (!row)
@@ -929,8 +927,8 @@ namespace kilopp
     /* Delete the char at the current prompt position. */
     void delete_character()
     {
-        int filerow = E.rowoff + E.cy;
-        int filecol = E.coloff + E.cx;
+        const auto filerow = E.rowoff + E.cy;
+        auto filecol = E.coloff + E.cx;
         erow *row = (filerow >= E.row.size()) ? NULL : &E.row[filerow];
 
         if (!row || (filecol == 0 && filerow == 0))
@@ -941,7 +939,7 @@ namespace kilopp
          * on the right of the previous one. */
             filecol = E.row[filerow - 1].chars.size();
             auto row_index = filerow - 1;
-            append_to_row(E.row[row_index], row->chars.c_str(), row->chars.size(), row_index);
+            append_to_row(E.row[row_index], row->chars.c_str(), row_index);
             delete_row(filerow);
             row = NULL;
             if (E.cy == 0)
@@ -1036,16 +1034,15 @@ namespace kilopp
  * starting from the logical state of the editor in the global state 'E'. */
     void refresh_screen(void)
     {
-        int y;
         erow *r;
         //char buf[32];
         std::stringstream output;
 
         output << "\x1b[?25l"; /* Hide cursor. */
         output << "\x1b[H";    /* Go home. */
-        for (y = 0; y < E.screenrows; y++)
+        for (size_t y = 0; y < E.screenrows; y++)
         {
-            int filerow = E.rowoff + y;
+            const auto filerow = E.rowoff + y;
 
             if (filerow >= E.row.size())
             {
@@ -1073,16 +1070,15 @@ namespace kilopp
 
             r = &E.row[filerow];
 
-            int len = r->rsize - E.coloff;
-            int current_color = -1;
+            auto len = r->rsize - E.coloff;
+            auto current_color = -1;
             if (len > 0)
             {
                 if (len > E.screencols)
                     len = E.screencols;
-                char *c = r->render + E.coloff;
-                unsigned char *hl = r->hl + E.coloff;
-                int j;
-                for (j = 0; j < len; j++)
+                const auto c = r->render + E.coloff;
+                const auto hl = r->hl + E.coloff;
+                for (size_t j = 0; j < len; j++)
                 {
                     if (hl[j] == HL_NONPRINT)
                     {
@@ -1125,10 +1121,10 @@ namespace kilopp
         output << "\x1b[0K";
         output << "\x1b[7m";
         char status[80], rstatus[80];
-        int len = snprintf(status, sizeof(status), "%.20s - %d lines %s",
-                           E.filename, E.row.size(), E.dirty ? "(modified)" : "");
-        int rlen = snprintf(rstatus, sizeof(rstatus),
-                            "%d/%d", E.rowoff + E.cy + 1, E.row.size());
+        size_t len = snprintf(status, sizeof(status), "%.20s - %lu lines %s",
+                              E.filename, E.row.size(), E.dirty ? "(modified)" : "");
+        size_t rlen = snprintf(rstatus, sizeof(rstatus),
+                               "%lu/%lu", E.rowoff + E.cy + 1, E.row.size());
         if (len > E.screencols)
             len = E.screencols;
         output << status;
@@ -1149,20 +1145,19 @@ namespace kilopp
 
         /* Second row depends on E.statusmsg and the status message update time. */
         output << "\x1b[0K";
-        int msglen = strlen(E.statusmsg);
+        const auto msglen = strlen(E.statusmsg);
         if (msglen && time(NULL) - E.statusmsg_time < 5)
             output << E.statusmsg; //, msglen <= E.screencols ? msglen : E.screencols);
 
         /* Put cursor at its current position. Note that the horizontal position
      * at which the cursor is displayed may be different compared to 'E.cx'
      * because of TABs. */
-        int j;
-        int cx = 1;
-        int filerow = E.rowoff + E.cy;
+        auto cx = 1;
+        const auto filerow = E.rowoff + E.cy;
         erow *row = (filerow >= E.row.size()) ? NULL : &E.row[filerow];
         if (row)
         {
-            for (j = E.coloff; j < (E.cx + E.coloff); j++)
+            for (auto j = E.coloff; j < (E.cx + E.coloff); j++)
             {
                 if (j < row->chars.size() && row->chars[j] == TAB)
                     cx += 7 - ((cx) % 8);
@@ -1267,14 +1262,14 @@ namespace kilopp
             {
                 char *match = NULL;
                 int match_offset = 0;
-                int i, current = last_match;
+                int current = last_match;
 
-                for (i = 0; i < E.row.size(); i++)
+                for (size_t i = 0; i < E.row.size(); i++)
                 {
                     current += find_next;
                     if (current == -1)
                         current = E.row.size() - 1;
-                    else if (current == E.row.size())
+                    else if (static_cast<size_t>(current) == E.row.size())
                         current = 0;
                     match = strstr(E.row[current].render, query);
                     if (match)
@@ -1320,9 +1315,9 @@ namespace kilopp
     /* Handle cursor position change because arrow keys were pressed. */
     void move_cursor(int key)
     {
-        int filerow = E.rowoff + E.cy;
-        int filecol = E.coloff + E.cx;
-        int rowlen;
+        auto filerow = E.rowoff + E.cy;
+        auto filecol = E.coloff + E.cx;
+        size_t rowlen;
         erow *row = (filerow >= E.row.size()) ? NULL : &E.row[filerow];
 
         switch (key)
