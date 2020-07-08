@@ -135,7 +135,7 @@ namespace kilopp
     /* This structure represents a single line of the file we are editing. */
     struct erow
     {
-        erow(const char *s, int len, int idx) : chars(s)
+        erow(const char *s) : chars(s)
         {
             hl = NULL;
             hl_oc = 0;
@@ -765,12 +765,12 @@ namespace kilopp
 
     /* Insert a row at the specified position, shifting the other rows on the bottom
  * if required. */
-    void insert_row(int at, const char *s, size_t len)
+    void insert_row(int at, const char *s)
     {
         if (at > E.row.size())
             return;
 
-        E.row.emplace(E.row.begin() + at, s, len, at);
+        E.row.emplace(E.row.begin() + at, s);
         update_row(E.row[at], at);
         E.dirty = true;
     }
@@ -868,7 +868,7 @@ namespace kilopp
         if (!row)
         {
             while (E.row.size() <= filerow)
-                insert_row(E.row.size(), "", 0);
+                insert_row(E.row.size(), "");
         }
         row = &E.row[filerow];
         insert_character_to_row(*row, filecol, c, filerow);
@@ -891,7 +891,7 @@ namespace kilopp
         {
             if (filerow == E.row.size())
             {
-                insert_row(filerow, "", 0);
+                insert_row(filerow, "");
                 goto fixcursor;
             }
             return;
@@ -902,13 +902,13 @@ namespace kilopp
             filecol = row->chars.size();
         if (filecol == 0)
         {
-            insert_row(filerow, "", 0);
+            insert_row(filerow, "");
         }
         else
         {
             /* We are in the middle of a line. Split it between two rows. */
             const auto split = row->chars.substr(filecol);
-            insert_row(filerow + 1, split.c_str(), row->chars.size() - filecol);
+            insert_row(filerow + 1, split.c_str());
             row = &E.row[filerow];
             row->chars.erase(filecol);
             update_row(*row, filerow);
@@ -999,7 +999,7 @@ namespace kilopp
         {
             if (linelen && (line[linelen - 1] == '\n' || line[linelen - 1] == '\r'))
                 line[--linelen] = '\0';
-            insert_row(E.row.size(), line, linelen);
+            insert_row(E.row.size(), line);
         }
         free(line);
         fclose(fp);
