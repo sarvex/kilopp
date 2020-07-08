@@ -56,10 +56,10 @@
 #include <utility>
 #include <stdexcept>
 #include <string_view>
-#include <iostream>
 #include <vector>
 #include <array>
 #include <memory>
+#include <sstream>
 
 /* Syntax highlight types */
 #define HL_NORMAL 0
@@ -1046,48 +1046,17 @@ namespace kilopp
 
     /* ============================= Terminal update ============================ */
 
-    /* We define a very simple "append buffer" structure, that is an heap
- * allocated string where we can append to. This is useful in order to
- * write all the escape sequences in a buffer and flush them to the standard
- * output in a single call, to avoid flickering effects. */
-    struct abuf
-    {
-        char *b;
-        int len;
-    };
-
-#define ABUF_INIT \
-    {             \
-        NULL, 0   \
-    }
-
-    void abAppend(struct abuf *ab, const char *s, int len)
-    {
-        char *new_string = static_cast<char *>(realloc(ab->b, ab->len + len));
-
-        if (new_string == NULL)
-            return;
-        memcpy(new_string + ab->len, s, len);
-        ab->b = new_string;
-        ab->len += len;
-    }
-
-    void abFree(struct abuf *ab)
-    {
-        free(ab->b);
-    }
-
     /* This function writes the whole screen using VT100 escape characters
  * starting from the logical state of the editor in the global state 'E'. */
     void refresh_screen(void)
     {
         int y;
         erow *r;
-        char buf[32];
-        struct abuf ab = ABUF_INIT;
+        //char buf[32];
+        std::stringstream output;
 
-        abAppend(&ab, "\x1b[?25l", 6); /* Hide cursor. */
-        abAppend(&ab, "\x1b[H", 3);    /* Go home. */
+        output << "\x1b[?25l"; /* Hide cursor. */
+        output << "\x1b[H";    /* Go home. */
         for (y = 0; y < E.screenrows; y++)
         {
             int filerow = E.rowoff + y;
@@ -1102,16 +1071,16 @@ namespace kilopp
                     int padding = (E.screencols - welcomelen) / 2;
                     if (padding)
                     {
-                        abAppend(&ab, "~", 1);
+                        output << '~';
                         padding--;
                     }
                     while (padding--)
-                        abAppend(&ab, " ", 1);
-                    abAppend(&ab, welcome, welcomelen);
+                        output << ' ';
+                    output << welcome;
                 }
                 else
                 {
-                    abAppend(&ab, "~\x1b[0K\r\n", 7);
+                    output << "~\x1b[0K\r\n";
                 }
                 continue;
             }
@@ -1132,45 +1101,43 @@ namespace kilopp
                     if (hl[j] == HL_NONPRINT)
                     {
                         char sym;
-                        abAppend(&ab, "\x1b[7m", 4);
+                        output << "\x1b[7m";
                         if (c[j] <= 26)
                             sym = '@' + c[j];
                         else
                             sym = '?';
-                        abAppend(&ab, &sym, 1);
-                        abAppend(&ab, "\x1b[0m", 4);
+                        output << sym;
+                        output << "\x1b[0m";
                     }
                     else if (hl[j] == HL_NORMAL)
                     {
                         if (current_color != -1)
                         {
-                            abAppend(&ab, "\x1b[39m", 5);
+                            output << "\x1b[39m";
                             current_color = -1;
                         }
-                        abAppend(&ab, c + j, 1);
+                        output << c[j];
                     }
                     else
                     {
                         int color = syntax_to_color(hl[j]);
                         if (color != current_color)
                         {
-                            char buf[16];
-                            int clen = snprintf(buf, sizeof(buf), "\x1b[%dm", color);
+                            output << "\x1b[" << color << 'm';
                             current_color = color;
-                            abAppend(&ab, buf, clen);
                         }
-                        abAppend(&ab, c + j, 1);
+                        output << c[j];
                     }
                 }
             }
-            abAppend(&ab, "\x1b[39m", 5);
-            abAppend(&ab, "\x1b[0K", 4);
-            abAppend(&ab, "\r\n", 2);
+            output << "\x1b[39m";
+            output << "\x1b[0K";
+            output << "\r\n";
         }
 
         /* Create a two rows status. First row: */
-        abAppend(&ab, "\x1b[0K", 4);
-        abAppend(&ab, "\x1b[7m", 4);
+        output << "\x1b[0K";
+        output << "\x1b[7m";
         char status[80], rstatus[80];
         int len = snprintf(status, sizeof(status), "%.20s - %d lines %s",
                            E.filename, E.row.size(), E.dirty ? "(modified)" : "");
@@ -1178,27 +1145,27 @@ namespace kilopp
                             "%d/%d", E.rowoff + E.cy + 1, E.row.size());
         if (len > E.screencols)
             len = E.screencols;
-        abAppend(&ab, status, len);
+        output << status;
         while (len < E.screencols)
         {
             if (E.screencols - len == rlen)
             {
-                abAppend(&ab, rstatus, rlen);
+                output << rstatus;
                 break;
             }
             else
             {
-                abAppend(&ab, " ", 1);
+                output << ' ';
                 len++;
             }
         }
-        abAppend(&ab, "\x1b[0m\r\n", 6);
+        output << "\x1b[0m\r\n";
 
         /* Second row depends on E.statusmsg and the status message update time. */
-        abAppend(&ab, "\x1b[0K", 4);
+        output << "\x1b[0K";
         int msglen = strlen(E.statusmsg);
         if (msglen && time(NULL) - E.statusmsg_time < 5)
-            abAppend(&ab, E.statusmsg, msglen <= E.screencols ? msglen : E.screencols);
+            output << E.statusmsg; //, msglen <= E.screencols ? msglen : E.screencols);
 
         /* Put cursor at its current position. Note that the horizontal position
      * at which the cursor is displayed may be different compared to 'E.cx'
@@ -1216,11 +1183,11 @@ namespace kilopp
                 cx++;
             }
         }
-        snprintf(buf, sizeof(buf), "\x1b[%d;%dH", E.cy + 1, cx);
-        abAppend(&ab, buf, strlen(buf));
-        abAppend(&ab, "\x1b[?25h", 6); /* Show cursor. */
-        write(STDOUT_FILENO, ab.b, ab.len);
-        abFree(&ab);
+
+        output << "\x1b[" << E.cy + 1 << ';' << cx << 'H';
+        output << "\x1b[?25h"; /* Show cursor. */
+        auto const data = output.str();
+        write(STDOUT_FILENO, data.data(), data.size());
     }
 
     /* Set an editor status message for the second line of the status, at the
