@@ -142,13 +142,36 @@ struct erow
         hl_oc = 0;
         render = NULL;
         rsize = 0;
-        idx = idx;
+        this->idx = idx;
     }
     erow(const erow &) = delete;
     erow &operator=(const erow &) = delete;
+    erow(erow &&other)
+    {
+        *this = std::move(other);
+    };
 
-    erow(erow &&) = default;
-    erow &operator=(erow &&other) = default;
+    erow &operator=(erow &&other)
+    {
+        std::swap(size, other.size);
+        std::swap(chars, other.chars);
+        std::swap(hl, other.hl);
+        std::swap(hl_oc, other.hl_oc);
+        std::swap(render, other.render);
+        std::swap(rsize, other.rsize);
+        std::swap(idx, other.idx);
+        other.chars = NULL;
+        other.hl = NULL;
+        other.render = NULL;
+    };
+
+    ~erow()
+    {
+
+        free(chars);
+        free(hl);
+        free(render);
+    }
 
     int idx;           /* Row index in the file, zero-based. */
     int size;          /* Size of the row, excluding the null term. */
@@ -754,6 +777,10 @@ void editorInsertRow(int at, const char *s, size_t len)
         return;
 
     E.row.emplace(E.row.begin() + at, s, len, at);
+    for (auto i = at + 1; i < E.row.size(); ++i)
+    {
+        E.row[i].idx++;
+    }
     editorUpdateRow(E.row[at]);
     E.dirty = true;
 }
