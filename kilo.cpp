@@ -1423,11 +1423,15 @@ namespace kilopp
         rowlen = row ? row->chars.size() : 0;
         if (filecol > rowlen)
         {
-            E.cx -= filecol - rowlen;
-            if (E.cx < 0)
+            const auto reminder = filecol - rowlen;
+            if (reminder > E.cx)
             {
-                E.coloff += E.cx;
+                E.coloff -= reminder - E.cx;
                 E.cx = 0;
+            }
+            else
+            {
+                E.cx -= reminder;
             }
         }
     }
