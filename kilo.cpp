@@ -60,6 +60,7 @@
 #include <array>
 #include <memory>
 #include <sstream>
+#include <fstream>
 
 /* Syntax highlight types */
 #define HL_NORMAL 0
@@ -145,7 +146,7 @@ namespace kilopp
     /* This structure represents a single line of the file we are editing. */
     struct erow
     {
-        erow(const char *s) : chars(s)
+        erow(std::string &&line) : chars(std::move(line))
         {
             hl = NULL;
             hl_oc = 0;
@@ -203,7 +204,7 @@ namespace kilopp
         size_t screencols;     /* Number of cols that we can show */
         std::vector<erow> row; /* Rows */
         bool dirty;            /* File modified but not saved. */
-        char *filename;        /* Currently open filename */
+        std::string filename;  /* Currently open filename */
         std::string status_message;
         time_t statusmsg_time;
         const struct syntax *syntax; /* Current syntax highlight, or NULL. */
@@ -798,12 +799,12 @@ namespace kilopp
 
     /* Insert a row at the specified position, shifting the other rows on the bottom
  * if required. */
-    void insert_row(size_t at, const char *s)
+    void insert_row(size_t at, std::string &&line)
     {
         if (at > E.row.size())
             return;
 
-        E.row.emplace(E.row.begin() + at, s);
+        E.row.emplace(E.row.begin() + at, std::move(line));
         update_row(E.row[at], at);
         E.dirty = true;
     }
@@ -1002,40 +1003,20 @@ namespace kilopp
 
     /* Load the specified program in the editor memory and returns 0 on success
  * or 1 on error. */
-    int open_file(const char *filename)
+    void open_file(const char *filename)
     {
-        FILE *fp;
-
         E.dirty = false;
-        free(E.filename);
-        size_t fnlen = strlen(filename) + 1;
-        E.filename = static_cast<char *>(malloc(fnlen));
-        memcpy(E.filename, filename, fnlen);
+        E.filename = filename;
 
-        fp = fopen(filename, "r");
-        if (!fp)
-        {
-            if (errno != ENOENT)
-            {
-                perror("Opening file");
-                exit(1);
-            }
-            return 1;
-        }
+        std::ifstream infile(filename);
 
-        char *line = NULL;
-        size_t linecap = 0;
-        ssize_t linelen;
-        while ((linelen = getline(&line, &linecap, fp)) != -1)
+        std::string line;
+        ;
+        while (std::getline(infile, line))
         {
-            if (linelen && (line[linelen - 1] == '\n' || line[linelen - 1] == '\r'))
-                line[--linelen] = '\0';
-            insert_row(E.row.size(), line);
+            insert_row(E.row.size(), std::move(line));
         }
-        free(line);
-        fclose(fp);
         E.dirty = false;
-        return 0;
     }
 
     /* Save the current file on disk. Return 0 on success, 1 on error. */
@@ -1046,7 +1027,7 @@ namespace kilopp
 
         try
         {
-            file_descriptor fd(open(E.filename, O_RDWR | O_CREAT, 0644), true);
+            file_descriptor fd(open(E.filename.c_str(), O_RDWR | O_CREAT, 0644), true);
 
             fd.truncate(length);
             fd.write(buffer);
@@ -1154,7 +1135,7 @@ namespace kilopp
         output << "\x1b[7m";
         char status[80], rstatus[80];
         size_t len = snprintf(status, sizeof(status), "%.20s - %lu lines %s",
-                              E.filename, E.row.size(), E.dirty ? "(modified)" : "");
+                              E.filename.c_str(), E.row.size(), E.dirty ? "(modified)" : "");
         size_t rlen = snprintf(rstatus, sizeof(rstatus),
                                "%lu/%lu", E.rowoff + E.cy + 1, E.row.size());
         if (len > E.screencols)
@@ -1543,7 +1524,6 @@ namespace kilopp
         E.rowoff = 0;
         E.coloff = 0;
         E.dirty = false;
-        E.filename = NULL;
         E.syntax = NULL;
         update_window_size();
         signal(SIGWINCH, signal_handler);
