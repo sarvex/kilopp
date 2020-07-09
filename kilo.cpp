@@ -101,9 +101,19 @@ namespace kilopp
             }
         }
 
-        void write(const std::vector<char> &buffer)
+        template <typename T>
+        void write(const T &buffer)
         {
             if (::write(fd, buffer.data(), buffer.size()) == -1)
+            {
+                throw std::runtime_error("Write error");
+            }
+        }
+
+        template <std::size_t N>
+        void write(const char (&buffer)[N])
+        {
+            if (::write(fd, buffer, N) == -1)
             {
                 throw std::runtime_error("Write error");
             }
@@ -227,25 +237,37 @@ namespace kilopp
         PAGE_DOWN
     };
 
-    class status
+    class output
     {
     public:
         template <typename T, typename... Args>
-        void args(T first, Args... more)
+        std::string args(T first, Args... more)
         {
             output << first;
-            args(more...);
+            return args(more...);
         }
 
-        void args()
-        {
-            E.status_message = std::move(output.str());
-            E.statusmsg_time = time(NULL);
-        }
+        std::string args() { return std::move(output.str()); }
 
     private:
         std::stringstream output;
     };
+
+    template <typename... Args>
+    constexpr std::string format(Args... args)
+    {
+        return output().args(args...);
+    }
+
+    template <typename... Args>
+    void set_status(Args... args)
+    {
+        output o;
+        E.status_message = std::move(o.args(args...));
+        E.statusmsg_time = time(NULL);
+    }
+
+    constexpr const char *WELCOME = "Kilo editor -- verison " KILO_VERSION "\x1b[0K\r\n";
 
     /* =========================== Syntax highlights DB =========================
  *
@@ -344,7 +366,7 @@ namespace kilopp
 
         ~raw_mode()
         {
-            write(STDIN_FILENO, "\x1b[0;0H\033[2J", 10);
+            file_descriptor(STDIN_FILENO, false).write("\x1b[0;0H\033[2J");
             tcsetattr(STDIN_FILENO, TCSAFLUSH, &previous_state);
         }
 
@@ -444,10 +466,7 @@ namespace kilopp
         unsigned int i = 0;
 
         /* Report cursor location */
-        if (write(ofd, "\x1b[6n", 4) != 4)
-        {
-            throw std::runtime_error{"ioctl failed"};
-        }
+        file_descriptor(ofd, false).write("\x1b[6n");
 
         /* Read the response: ESC [ rows ; cols R */
         while (i < sizeof(buf) - 1)
@@ -485,24 +504,17 @@ namespace kilopp
         {
             /* ioctl() failed. Try to query the terminal itself. */
             auto orig_position = get_cursor_position(ifd, ofd);
+            file_descriptor fd(ofd, false);
 
             /* Go to right/bottom margin and get position. */
-            if (write(ofd, "\x1b[999C\x1b[999B", 12) != 12)
-            {
-                throw std::runtime_error("write failed");
-            }
+            fd.write("\x1b[999C\x1b[999B");
 
             auto position = get_cursor_position(ifd, ofd);
             rows = position.first;
             cols = position.second;
 
             /* Restore position. */
-            char seq[32];
-            snprintf(seq, 32, "\x1b[%d;%dH", orig_position.first, orig_position.second);
-            if (write(ofd, seq, strlen(seq)) == -1)
-            {
-                throw std::runtime_error("write failed");
-            }
+            fd.write(format("\x1b[", orig_position.first, ";", orig_position.second, "H"));
         }
         else
         {
@@ -1037,11 +1049,11 @@ namespace kilopp
             fd.truncate(length);
             fd.write(buffer);
             E.dirty = false;
-            status().args(length, " bytes written on disk");
+            set_status(length, " bytes written on disk");
         }
         catch (const std::runtime_error &e)
         {
-            status().args("Can't save! I/O error: ", strerror(errno));
+            set_status("Can't save! I/O error: ", strerror(errno));
         }
 
         return 1;
@@ -1067,9 +1079,8 @@ namespace kilopp
             {
                 if (E.row.size() == 0 && y == E.screenrows / 3)
                 {
-                    char welcome[80];
-                    int welcomelen = snprintf(welcome, sizeof(welcome),
-                                              "Kilo editor -- verison %s\x1b[0K\r\n", KILO_VERSION);
+
+                    auto welcomelen = strlen(WELCOME);
                     int padding = (E.screencols - welcomelen) / 2;
                     if (padding)
                     {
@@ -1078,7 +1089,7 @@ namespace kilopp
                     }
                     while (padding--)
                         output << ' ';
-                    output << welcome;
+                    output << WELCOME;
                 }
                 else
                 {
@@ -1219,7 +1230,7 @@ namespace kilopp
 
         while (1)
         {
-            status().args(
+            set_status(
                 "Search: ", query, " (Use ESC/Arrows/Enter)");
             refresh_screen();
 
@@ -1240,7 +1251,7 @@ namespace kilopp
                     E.rowoff = saved_rowoff;
                 }
                 FIND_RESTORE_HL;
-                status().args();
+                set_status();
                 return;
             }
             else if (c == ARROW_RIGHT || c == ARROW_DOWN)
@@ -1444,10 +1455,10 @@ namespace kilopp
             /* Quit if the file was already saved. */
             if (E.dirty && quit_times)
             {
-                status().args("WARNING!!! File has unsaved changes. "
-                              "Press Ctrl-Q ",
-                              quit_times,
-                              " more times to quit.");
+                set_status("WARNING!!! File has unsaved changes. "
+                           "Press Ctrl-Q ",
+                           quit_times,
+                           " more times to quit.");
                 quit_times--;
                 return true;
             }
@@ -1549,7 +1560,7 @@ int main(int argc, char **argv)
     open_file(argv[1]);
     raw_mode rm;
 
-    status().args(
+    set_status(
         "HELP: Ctrl-S = save | Ctrl-Q = quit | Ctrl-F = find");
     do
     {
