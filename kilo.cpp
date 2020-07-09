@@ -157,6 +157,8 @@ namespace kilopp
         erow &operator=(const erow &) = delete;
         erow(erow &&other)
         {
+            free(hl);
+            free(render);
             *this = std::move(other);
         };
 
