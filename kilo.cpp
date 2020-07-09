@@ -192,7 +192,7 @@ namespace kilopp
         std::vector<erow> row; /* Rows */
         bool dirty;            /* File modified but not saved. */
         char *filename;        /* Currently open filename */
-        char statusmsg[80];
+        std::string status_message;
         time_t statusmsg_time;
         const struct syntax *syntax; /* Current syntax highlight, or NULL. */
     };
@@ -227,7 +227,25 @@ namespace kilopp
         PAGE_DOWN
     };
 
-    void set_status_message(const char *fmt, ...);
+    class status
+    {
+    public:
+        template <typename T, typename... Args>
+        void args(T first, Args... more)
+        {
+            output << first;
+            args(more...);
+        }
+
+        void args()
+        {
+            E.status_message = std::move(output.str());
+            E.statusmsg_time = time(NULL);
+        }
+
+    private:
+        std::stringstream output;
+    };
 
     /* =========================== Syntax highlights DB =========================
  *
@@ -254,31 +272,32 @@ namespace kilopp
 
     /* Here we define an array of syntax highlights by extensions, keywords,
  * comments delimiters and flags. */
-    std::array<struct syntax, 1> HLDB = {
-        {/* C / C++ */
-         std::vector<const char *>{".c", ".h", ".cpp", ".hpp", ".cc"},
-         std::vector<const char *>{
-             /* C Keywords */
-             "auto", "break", "case", "continue", "default", "do", "else", "enum",
-             "extern", "for", "goto", "if", "register", "return", "sizeof", "static",
-             "struct", "switch", "typedef", "union", "volatile", "while", "NULL",
+    std::array<struct syntax, 1>
+        HLDB = {
+            {/* C / C++ */
+             std::vector<const char *>{".c", ".h", ".cpp", ".hpp", ".cc"},
+             std::vector<const char *>{
+                 /* C Keywords */
+                 "auto", "break", "case", "continue", "default", "do", "else", "enum",
+                 "extern", "for", "goto", "if", "register", "return", "sizeof", "static",
+                 "struct", "switch", "typedef", "union", "volatile", "while", "NULL",
 
-             /* C++ Keywords */
-             "alignas", "alignof", "and", "and_eq", "asm", "bitand", "bitor", "class",
-             "compl", "constexpr", "const_cast", "deltype", "delete", "dynamic_cast",
-             "explicit", "export", "false", "friend", "inline", "mutable", "namespace",
-             "new", "noexcept", "not", "not_eq", "nullptr", "operator", "or", "or_eq",
-             "private", "protected", "public", "reinterpret_cast", "static_assert",
-             "static_cast", "template", "this", "thread_local", "throw", "true", "try",
-             "typeid", "typename", "virtual", "xor", "xor_eq",
+                 /* C++ Keywords */
+                 "alignas", "alignof", "and", "and_eq", "asm", "bitand", "bitor", "class",
+                 "compl", "constexpr", "const_cast", "deltype", "delete", "dynamic_cast",
+                 "explicit", "export", "false", "friend", "inline", "mutable", "namespace",
+                 "new", "noexcept", "not", "not_eq", "nullptr", "operator", "or", "or_eq",
+                 "private", "protected", "public", "reinterpret_cast", "static_assert",
+                 "static_cast", "template", "this", "thread_local", "throw", "true", "try",
+                 "typeid", "typename", "virtual", "xor", "xor_eq",
 
-             /* C types */
-             "int|", "long|", "double|", "float|", "char|", "unsigned|", "signed|",
-             "void|", "short|", "auto|", "const|", "bool|"},
-         "//",
-         "/*",
-         "*/",
-         HL_HIGHLIGHT_STRINGS | HL_HIGHLIGHT_NUMBERS}};
+                 /* C types */
+                 "int|", "long|", "double|", "float|", "char|", "unsigned|", "signed|",
+                 "void|", "short|", "auto|", "const|", "bool|"},
+             "//",
+             "/*",
+             "*/",
+             HL_HIGHLIGHT_STRINGS | HL_HIGHLIGHT_NUMBERS}};
 
     /* ======================= Low level terminal handling ====================== */
 
@@ -1018,11 +1037,11 @@ namespace kilopp
             fd.truncate(length);
             fd.write(buffer);
             E.dirty = false;
-            set_status_message("%d bytes written on disk", length);
+            status().args(length, " bytes written on disk");
         }
         catch (const std::runtime_error &e)
         {
-            set_status_message("Can't save! I/O error: %s", strerror(errno));
+            status().args("Can't save! I/O error: ", strerror(errno));
         }
 
         return 1;
@@ -1145,9 +1164,8 @@ namespace kilopp
 
         /* Second row depends on E.statusmsg and the status message update time. */
         output << "\x1b[0K";
-        const auto msglen = strlen(E.statusmsg);
-        if (msglen && time(NULL) - E.statusmsg_time < 5)
-            output << E.statusmsg; //, msglen <= E.screencols ? msglen : E.screencols);
+        if (!E.status_message.empty() && time(NULL) - E.statusmsg_time < 5)
+            output << E.status_message; //, msglen <= E.screencols ? msglen : E.screencols);
 
         /* Put cursor at its current position. Note that the horizontal position
      * at which the cursor is displayed may be different compared to 'E.cx'
@@ -1169,18 +1187,6 @@ namespace kilopp
         output << "\x1b[?25h"; /* Show cursor. */
         auto const data = output.str();
         write(STDOUT_FILENO, data.data(), data.size());
-    }
-
-    /* Set an editor status message for the second line of the status, at the
- * end of the screen. */
-
-    void set_status_message(const char *fmt, ...)
-    {
-        va_list ap;
-        va_start(ap, fmt);
-        vsnprintf(E.statusmsg, sizeof(E.statusmsg), fmt, ap);
-        va_end(ap);
-        E.statusmsg_time = time(NULL);
     }
 
     /* =============================== Find mode ================================ */
@@ -1213,8 +1219,8 @@ namespace kilopp
 
         while (1)
         {
-            set_status_message(
-                "Search: %s (Use ESC/Arrows/Enter)", query);
+            status().args(
+                "Search: ", query, " (Use ESC/Arrows/Enter)");
             refresh_screen();
 
             int c = read_key(fd);
@@ -1234,7 +1240,7 @@ namespace kilopp
                     E.rowoff = saved_rowoff;
                 }
                 FIND_RESTORE_HL;
-                set_status_message("");
+                status().args();
                 return;
             }
             else if (c == ARROW_RIGHT || c == ARROW_DOWN)
@@ -1438,9 +1444,10 @@ namespace kilopp
             /* Quit if the file was already saved. */
             if (E.dirty && quit_times)
             {
-                set_status_message("WARNING!!! File has unsaved changes. "
-                                   "Press Ctrl-Q %d more times to quit.",
-                                   quit_times);
+                status().args("WARNING!!! File has unsaved changes. "
+                              "Press Ctrl-Q ",
+                              quit_times,
+                              " more times to quit.");
                 quit_times--;
                 return true;
             }
@@ -1542,7 +1549,7 @@ int main(int argc, char **argv)
     open_file(argv[1]);
     raw_mode rm;
 
-    set_status_message(
+    status().args(
         "HELP: Ctrl-S = save | Ctrl-Q = quit | Ctrl-F = find");
     do
     {
