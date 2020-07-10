@@ -146,45 +146,40 @@ namespace kilopp
     /* This structure represents a single line of the file we are editing. */
     struct erow
     {
-        erow(std::string &&line) : chars(std::move(line))
+        erow(std::string &&line) : rsize(0),
+                                   chars(std::move(line)),
+                                   hl_oc(0),
+                                   m_hl(NULL, ::free),
+                                   m_render(NULL, ::free)
         {
-            hl = NULL;
-            hl_oc = 0;
-            render = NULL;
-            rsize = 0;
         }
 
         erow(const erow &) = delete;
         erow &operator=(const erow &) = delete;
-        erow(erow &&other)
-        {
-            hl = NULL;
-            render = NULL;
-            *this = std::move(other);
-        };
+        erow(erow &&other) = default;
+        erow &operator=(erow &&other) = default;
 
-        erow &operator=(erow &&other)
+        unsigned char *hl() { return m_hl.get(); }
+        const unsigned char *hl() const { return m_hl.get(); }
+        char *render() { return m_render.get(); }
+        const char *render() const { return m_render.get(); }
+        void realloc_hl()
         {
-            std::swap(chars, other.chars);
-            std::swap(hl, other.hl);
-            std::swap(hl_oc, other.hl_oc);
-            std::swap(render, other.render);
-            std::swap(rsize, other.rsize);
-            return *this;
-        };
-
-        ~erow()
+            const auto old = m_hl.release();
+            m_hl.reset(static_cast<unsigned char *>(realloc(old, rsize)));
+        }
+        void alloc_render(size_t size)
         {
-            free(hl);
-            free(render);
+            m_render.reset(static_cast<char *>(malloc(size)));
         }
 
         int rsize;         /* Size of the rendered row. */
         std::string chars; /* Row content. */
-        char *render;      /* Row content "rendered" for screen (for TABs). */
-        unsigned char *hl; /* Syntax highlight type for each character in render.*/
         int hl_oc;         /* Row had open comment at end in last syntax highlight
                            check. */
+    private:
+        std::unique_ptr<unsigned char, void (*)(void *)> m_hl; /* Syntax highlight type for each character in render.*/
+        std::unique_ptr<char, void (*)(void *)> m_render;      /* Row content "rendered" for screen (for TABs). */
     };
 
     typedef struct hlcolor
@@ -533,19 +528,19 @@ namespace kilopp
     /* Return true if the specified row last char is part of a multi line comment
  * that starts at this row or at one before, and does not end at the end
  * of the row but spawns to the next row. */
-    constexpr bool has_open_comment(const erow &row)
+    bool has_open_comment(const erow &row)
     {
-        return (row.hl && row.rsize && row.hl[row.rsize - 1] == HL_MLCOMMENT &&
-                (row.rsize < 2 || (row.render[row.rsize - 2] != '*' ||
-                                   row.render[row.rsize - 1] != '/')));
+        return (row.hl() && row.rsize && row.hl()[row.rsize - 1] == HL_MLCOMMENT &&
+                (row.rsize < 2 || (row.render()[row.rsize - 2] != '*' ||
+                                   row.render()[row.rsize - 1] != '/')));
     }
 
-    /* Set every byte of row->hl (that corresponds to every character in the line)
+    /* Set every byte of row->hl() (that corresponds to every character in the line)
  * to the right syntax highlight type (HL_* defines). */
     void update_syntax(erow &row, size_t row_index)
     {
-        row.hl = static_cast<unsigned char *>(realloc(row.hl, row.rsize));
-        memset(row.hl, HL_NORMAL, row.rsize);
+        row.realloc_hl();
+        memset(row.hl(), HL_NORMAL, row.rsize);
 
         if (E.syntax == NULL)
             return; /* No syntax, everything is HL_NORMAL. */
@@ -558,7 +553,7 @@ namespace kilopp
         auto mce = E.syntax->multiline_comment_end;
 
         /* Point to the first non-space char. */
-        p = row.render;
+        p = row.render();
         i = 0; /* Current char offset */
         while (*p && isspace(*p))
         {
@@ -580,17 +575,17 @@ namespace kilopp
             if (prev_sep && *p == scs[0] && *(p + 1) == scs[1])
             {
                 /* From here to end is a comment */
-                memset(row.hl + i, HL_COMMENT, row.chars.size() - i);
+                memset(row.hl() + i, HL_COMMENT, row.chars.size() - i);
                 return;
             }
 
             /* Handle multi line comments. */
             if (in_comment)
             {
-                row.hl[i] = HL_MLCOMMENT;
+                row.hl()[i] = HL_MLCOMMENT;
                 if (*p == mce[0] && *(p + 1) == mce[1])
                 {
-                    row.hl[i + 1] = HL_MLCOMMENT;
+                    row.hl()[i + 1] = HL_MLCOMMENT;
                     p += 2;
                     i += 2;
                     in_comment = 0;
@@ -607,8 +602,8 @@ namespace kilopp
             }
             else if (*p == mcs[0] && *(p + 1) == mcs[1])
             {
-                row.hl[i] = HL_MLCOMMENT;
-                row.hl[i + 1] = HL_MLCOMMENT;
+                row.hl()[i] = HL_MLCOMMENT;
+                row.hl()[i + 1] = HL_MLCOMMENT;
                 p += 2;
                 i += 2;
                 in_comment = 1;
@@ -619,10 +614,10 @@ namespace kilopp
             /* Handle "" and '' */
             if (in_string)
             {
-                row.hl[i] = HL_STRING;
+                row.hl()[i] = HL_STRING;
                 if (*p == '\\')
                 {
-                    row.hl[i + 1] = HL_STRING;
+                    row.hl()[i + 1] = HL_STRING;
                     p += 2;
                     i += 2;
                     prev_sep = 0;
@@ -639,7 +634,7 @@ namespace kilopp
                 if (*p == '"' || *p == '\'')
                 {
                     in_string = *p;
-                    row.hl[i] = HL_STRING;
+                    row.hl()[i] = HL_STRING;
                     p++;
                     i++;
                     prev_sep = 0;
@@ -650,7 +645,7 @@ namespace kilopp
             /* Handle non printable chars. */
             if (!isprint(*p))
             {
-                row.hl[i] = HL_NONPRINT;
+                row.hl()[i] = HL_NONPRINT;
                 p++;
                 i++;
                 prev_sep = 0;
@@ -658,10 +653,10 @@ namespace kilopp
             }
 
             /* Handle numbers */
-            if ((isdigit(*p) && (prev_sep || row.hl[i - 1] == HL_NUMBER)) ||
-                (*p == '.' && i > 0 && row.hl[i - 1] == HL_NUMBER))
+            if ((isdigit(*p) && (prev_sep || row.hl()[i - 1] == HL_NUMBER)) ||
+                (*p == '.' && i > 0 && row.hl()[i - 1] == HL_NUMBER))
             {
-                row.hl[i] = HL_NUMBER;
+                row.hl()[i] = HL_NUMBER;
                 p++;
                 i++;
                 prev_sep = 0;
@@ -683,7 +678,7 @@ namespace kilopp
                         is_separator(*(p + klen)))
                     {
                         /* Keyword */
-                        memset(row.hl + i, kw2 ? HL_KEYWORD2 : HL_KEYWORD1, klen);
+                        memset(row.hl() + i, kw2 ? HL_KEYWORD2 : HL_KEYWORD1, klen);
                         p += klen;
                         i += klen;
                         prev_sep = 0;
@@ -759,7 +754,6 @@ namespace kilopp
 
         /* Create a version of the row we can directly print on the screen,
      * respecting tabs, substituting non printable characters with '?'. */
-        free(row.render);
         for (const auto c : row.chars)
             if (c == TAB)
                 tabs++;
@@ -772,23 +766,23 @@ namespace kilopp
             exit(1);
         }
 
-        row.render = static_cast<char *>(malloc(row.chars.size() + tabs * 8 + nonprint * 9 + 1));
+        row.alloc_render(row.chars.size() + tabs * 8 + nonprint * 9 + 1);
         auto idx = 0;
         for (const auto c : row.chars)
         {
             if (c == TAB)
             {
-                row.render[idx++] = ' ';
+                row.render()[idx++] = ' ';
                 while ((idx + 1) % 8 != 0)
-                    row.render[idx++] = ' ';
+                    row.render()[idx++] = ' ';
             }
             else
             {
-                row.render[idx++] = c;
+                row.render()[idx++] = c;
             }
         }
         row.rsize = idx;
-        row.render[idx] = '\0';
+        row.render()[idx] = '\0';
 
         /* Update the syntax highlighting attributes of the row. */
         update_syntax(row, row_index);
@@ -1086,8 +1080,8 @@ namespace kilopp
             {
                 if (len > E.screencols)
                     len = E.screencols;
-                const auto c = r->render + E.coloff;
-                const auto hl = r->hl + E.coloff;
+                const auto c = r->render() + E.coloff;
+                const auto hl = r->hl() + E.coloff;
                 for (size_t j = 0; j < len; j++)
                 {
                     if (hl[j] == HL_NONPRINT)
@@ -1193,15 +1187,15 @@ namespace kilopp
         int saved_hl_line = -1; /* No saved HL */
         char *saved_hl = NULL;
 
-#define FIND_RESTORE_HL                                                            \
-    do                                                                             \
-    {                                                                              \
-        if (saved_hl)                                                              \
-        {                                                                          \
-            memcpy(E.row[saved_hl_line].hl, saved_hl, E.row[saved_hl_line].rsize); \
-            free(saved_hl);                                                        \
-            saved_hl = NULL;                                                       \
-        }                                                                          \
+#define FIND_RESTORE_HL                                                              \
+    do                                                                               \
+    {                                                                                \
+        if (saved_hl)                                                                \
+        {                                                                            \
+            memcpy(E.row[saved_hl_line].hl(), saved_hl, E.row[saved_hl_line].rsize); \
+            free(saved_hl);                                                          \
+            saved_hl = NULL;                                                         \
+        }                                                                            \
     } while (0)
 
         /* Save the cursor position in order to restore it later. */
@@ -1268,10 +1262,10 @@ namespace kilopp
                         current = E.row.size() - 1;
                     else if (static_cast<size_t>(current) == E.row.size())
                         current = 0;
-                    match = strstr(E.row[current].render, query);
+                    match = strstr(E.row[current].render(), query);
                     if (match)
                     {
-                        match_offset = match - E.row[current].render;
+                        match_offset = match - E.row[current].render();
                         break;
                     }
                 }
@@ -1284,12 +1278,12 @@ namespace kilopp
                 {
                     erow *row = &E.row[current];
                     last_match = current;
-                    if (row->hl)
+                    if (row->hl())
                     {
                         saved_hl_line = current;
                         saved_hl = static_cast<char *>(malloc(row->rsize));
-                        memcpy(saved_hl, row->hl, row->rsize);
-                        memset(row->hl + match_offset, HL_MATCH, qlen);
+                        memcpy(saved_hl, row->hl(), row->rsize);
+                        memset(row->hl() + match_offset, HL_MATCH, qlen);
                     }
                     E.cy = 0;
                     E.cx = match_offset;
