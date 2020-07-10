@@ -158,21 +158,18 @@ namespace kilopp
         erow &operator=(const erow &) = delete;
         erow(erow &&other)
         {
-            free(hl);
-            free(render);
+            hl = NULL;
+            render = NULL;
             *this = std::move(other);
         };
 
         erow &operator=(erow &&other)
         {
-
             std::swap(chars, other.chars);
             std::swap(hl, other.hl);
             std::swap(hl_oc, other.hl_oc);
             std::swap(render, other.render);
             std::swap(rsize, other.rsize);
-            other.hl = NULL;
-            other.render = NULL;
             return *this;
         };
 
