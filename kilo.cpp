@@ -112,9 +112,9 @@ namespace kilopp
         }
 
         template <std::size_t N>
-        void write(const char (&buffer)[N])
+        void write_string(const char (&buffer)[N])
         {
-            if (::write(fd, buffer, N) == -1)
+            if (::write(fd, buffer, N - 1) == -1)
             {
                 throw std::runtime_error("Write error");
             }
@@ -369,7 +369,7 @@ namespace kilopp
 
         ~raw_mode()
         {
-            file_descriptor(STDIN_FILENO, false).write("\x1b[0;0H\033[2J");
+            file_descriptor(STDIN_FILENO, false).write_string("\x1b[0;0H\033[2J");
             tcsetattr(STDIN_FILENO, TCSAFLUSH, &previous_state);
         }
 
@@ -469,7 +469,7 @@ namespace kilopp
         unsigned int i = 0;
 
         /* Report cursor location */
-        file_descriptor(ofd, false).write("\x1b[6n");
+        file_descriptor(ofd, false).write_string("\x1b[6n");
 
         /* Read the response: ESC [ rows ; cols R */
         while (i < sizeof(buf) - 1)
@@ -510,7 +510,7 @@ namespace kilopp
             file_descriptor fd(ofd, false);
 
             /* Go to right/bottom margin and get position. */
-            fd.write("\x1b[999C\x1b[999B");
+            fd.write_string("\x1b[999C\x1b[999B");
 
             auto position = get_cursor_position(ifd, ofd);
             rows = position.first;
