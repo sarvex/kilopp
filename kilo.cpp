@@ -125,9 +125,9 @@ private:
 struct syntax {
     std::vector<std::string_view> extensions;
     std::vector<std::string_view> keywords;
-    char singleline_comment_start[3];
-    char multiline_comment_start[3];
-    char multiline_comment_end[3];
+    std::string_view singleline_comment_start;
+    std::string_view multiline_comment_start;
+    std::string_view multiline_comment_end;
     int flags;
 };
 
