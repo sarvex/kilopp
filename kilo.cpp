@@ -185,33 +185,6 @@ struct config {
 
 static struct config E;
 
-enum KEY_ACTION {
-    KEY_NULL = 0,    /* NULL */
-    CTRL_C = 3,      /* Ctrl-c */
-    CTRL_D = 4,      /* Ctrl-d */
-    CTRL_F = 6,      /* Ctrl-f */
-    CTRL_H = 8,      /* Ctrl-h */
-    TAB = 9,         /* Tab */
-    CTRL_L = 12,     /* Ctrl+l */
-    ENTER = 13,      /* Enter */
-    CTRL_Q = 17,     /* Ctrl-q */
-    CTRL_S = 19,     /* Ctrl-s */
-    CTRL_U = 21,     /* Ctrl-u */
-    ESC = 27,        /* Escape */
-    BACKSPACE = 127, /* Backspace */
-    /* The following are just soft codes, not really reported by the
-     * terminal directly. */
-    ARROW_LEFT = 1000,
-    ARROW_RIGHT,
-    ARROW_UP,
-    ARROW_DOWN,
-    DEL_KEY,
-    HOME_KEY,
-    END_KEY,
-    PAGE_UP,
-    PAGE_DOWN
-};
-
 class output {
 public:
     template <typename T, typename... Args>
@@ -290,6 +263,35 @@ std::array<struct syntax, 1> HLDB = {
      "//", "/*", "*/", HL_HIGHLIGHT_STRINGS | HL_HIGHLIGHT_NUMBERS}};
 
 /* ======================= Low level terminal handling ====================== */
+
+namespace term {
+
+enum KEY_ACTION {
+    KEY_NULL = 0,    /* NULL */
+    CTRL_C = 3,      /* Ctrl-c */
+    CTRL_D = 4,      /* Ctrl-d */
+    CTRL_F = 6,      /* Ctrl-f */
+    CTRL_H = 8,      /* Ctrl-h */
+    TAB = 9,         /* Tab */
+    CTRL_L = 12,     /* Ctrl+l */
+    ENTER = 13,      /* Enter */
+    CTRL_Q = 17,     /* Ctrl-q */
+    CTRL_S = 19,     /* Ctrl-s */
+    CTRL_U = 21,     /* Ctrl-u */
+    ESC = 27,        /* Escape */
+    BACKSPACE = 127, /* Backspace */
+    /* The following are just soft codes, not really reported by the
+     * terminal directly. */
+    ARROW_LEFT = 1000,
+    ARROW_RIGHT,
+    ARROW_UP,
+    ARROW_DOWN,
+    DEL_KEY,
+    HOME_KEY,
+    END_KEY,
+    PAGE_UP,
+    PAGE_DOWN
+};
 
 class raw_mode {
 public:
@@ -466,6 +468,8 @@ void get_window_size(int ifd, int ofd, size_t& rows, size_t& cols) {
         rows = ws.ws_row;
     }
 }
+
+} // namespace term
 
 /* ====================== Syntax highlight color scheme  ==================== */
 
@@ -676,7 +680,7 @@ void update_row(erow& row, size_t row_index) {
     /* Create a version of the row we can directly print on the screen,
      * respecting tabs, substituting non printable characters with '?'. */
     for (const auto c : row.chars)
-        if (c == TAB)
+        if (c == term::TAB)
             tabs++;
 
     unsigned long long allocsize =
@@ -689,7 +693,7 @@ void update_row(erow& row, size_t row_index) {
     row.alloc_render(row.chars.size() + tabs * 8 + nonprint * 9 + 1);
     auto idx = 0;
     for (const auto c : row.chars) {
-        if (c == TAB) {
+        if (c == term::TAB) {
             row.render()[idx++] = ' ';
             while ((idx + 1) % 8 != 0)
                 row.render()[idx++] = ' ';
@@ -1026,7 +1030,7 @@ void refresh_screen(void) {
     erow* row = (filerow >= E.row.size()) ? nullptr : &E.row[filerow];
     if (row) {
         for (auto j = E.coloff; j < (E.cx + E.coloff); j++) {
-            if (j < row->chars.size() && row->chars[j] == TAB)
+            if (j < row->chars.size() && row->chars[j] == term::TAB)
                 cx += 7 - ((cx) % 8);
             cx++;
         }
@@ -1068,13 +1072,13 @@ void find(int fd) {
         set_status("Search: ", query, " (Use ESC/Arrows/Enter)");
         refresh_screen();
 
-        int c = read_key(fd);
-        if (c == DEL_KEY || c == CTRL_H || c == BACKSPACE) {
+        int c = term::read_key(fd);
+        if (c == term::DEL_KEY || c == term::CTRL_H || c == term::BACKSPACE) {
             if (qlen != 0)
                 query[--qlen] = '\0';
             last_match = -1;
-        } else if (c == ESC || c == ENTER) {
-            if (c == ESC) {
+        } else if (c == term::ESC || c == term::ENTER) {
+            if (c == term::ESC) {
                 E.cx = saved_cx;
                 E.cy = saved_cy;
                 E.coloff = saved_coloff;
@@ -1083,9 +1087,9 @@ void find(int fd) {
             FIND_RESTORE_HL;
             set_status();
             return;
-        } else if (c == ARROW_RIGHT || c == ARROW_DOWN) {
+        } else if (c == term::ARROW_RIGHT || c == term::ARROW_DOWN) {
             find_next = 1;
-        } else if (c == ARROW_LEFT || c == ARROW_UP) {
+        } else if (c == term::ARROW_LEFT || c == term::ARROW_UP) {
             find_next = -1;
         } else if (isprint(c)) {
             if (qlen < KILO_QUERY_LEN) {
@@ -1154,7 +1158,7 @@ void move_cursor(int key) {
     erow* row = (filerow >= E.row.size()) ? nullptr : &E.row[filerow];
 
     switch (key) {
-    case ARROW_LEFT:
+    case term::ARROW_LEFT:
         if (E.cx == 0) {
             if (E.coloff) {
                 E.coloff--;
@@ -1172,7 +1176,7 @@ void move_cursor(int key) {
             E.cx -= 1;
         }
         break;
-    case ARROW_RIGHT:
+    case term::ARROW_RIGHT:
         if (row && filecol < row->chars.size()) {
             if (E.cx == E.screencols - 1) {
                 E.coloff++;
@@ -1189,7 +1193,7 @@ void move_cursor(int key) {
             }
         }
         break;
-    case ARROW_UP:
+    case term::ARROW_UP:
         if (E.cy == 0) {
             if (E.rowoff)
                 E.rowoff--;
@@ -1197,7 +1201,7 @@ void move_cursor(int key) {
             E.cy -= 1;
         }
         break;
-    case ARROW_DOWN:
+    case term::ARROW_DOWN:
         if (filerow < E.row.size()) {
             if (E.cy == E.screenrows - 1) {
                 E.rowoff++;
@@ -1231,16 +1235,16 @@ bool process_keypress(int fd) {
      * before actually quitting. */
     static int quit_times = KILO_QUIT_TIMES;
 
-    int c = read_key(fd);
+    int c = term::read_key(fd);
     switch (c) {
-    case ENTER: /* Enter */
+    case term::ENTER: /* Enter */
         insert_newline();
         break;
-    case CTRL_C: /* Ctrl-c */
+    case term::CTRL_C: /* Ctrl-c */
         /* We ignore ctrl-c, it can't be so simple to lose the changes
          * to the edited file. */
         break;
-    case CTRL_Q: /* Ctrl-q */
+    case term::CTRL_Q: /* Ctrl-q */
         /* Quit if the file was already saved. */
         if (E.dirty && quit_times) {
             set_status("WARNING!!! File has unsaved changes. "
@@ -1250,40 +1254,41 @@ bool process_keypress(int fd) {
             return true;
         }
         return false;
-    case CTRL_S: /* Ctrl-s */
+    case term::CTRL_S: /* Ctrl-s */
         save();
         break;
-    case CTRL_F:
+    case term::CTRL_F:
         find(fd);
         break;
-    case BACKSPACE: /* Backspace */
-    case CTRL_H:    /* Ctrl-h */
-    case DEL_KEY:
+    case term::BACKSPACE: /* Backspace */
+    case term::CTRL_H:    /* Ctrl-h */
+    case term::DEL_KEY:
         delete_character();
         break;
-    case PAGE_UP:
-    case PAGE_DOWN:
-        if (c == PAGE_UP && E.cy != 0)
+    case term::PAGE_UP:
+    case term::PAGE_DOWN:
+        if (c == term::PAGE_UP && E.cy != 0)
             E.cy = 0;
-        else if (c == PAGE_DOWN && E.cy != E.screenrows - 1)
+        else if (c == term::PAGE_DOWN && E.cy != E.screenrows - 1)
             E.cy = E.screenrows - 1;
         {
             int times = E.screenrows;
             while (times--)
-                move_cursor(c == PAGE_UP ? ARROW_UP : ARROW_DOWN);
+                move_cursor(c == term::PAGE_UP ? term::ARROW_UP
+                                               : term::ARROW_DOWN);
         }
         break;
 
-    case ARROW_UP:
-    case ARROW_DOWN:
-    case ARROW_LEFT:
-    case ARROW_RIGHT:
+    case term::ARROW_UP:
+    case term::ARROW_DOWN:
+    case term::ARROW_LEFT:
+    case term::ARROW_RIGHT:
         move_cursor(c);
         break;
-    case CTRL_L: /* ctrl+l, clear screen */
+    case term::CTRL_L: /* ctrl+l, clear screen */
         /* Just refresht the line as side effect. */
         break;
-    case ESC:
+    case term::ESC:
         /* Nothing to do for ESC in this mode. */
         break;
     default:
@@ -1298,7 +1303,8 @@ bool process_keypress(int fd) {
 int editorFileWasModified(void) { return E.dirty; }
 
 void update_window_size(void) {
-    get_window_size(STDIN_FILENO, STDOUT_FILENO, E.screenrows, E.screencols);
+    term::get_window_size(STDIN_FILENO, STDOUT_FILENO, E.screenrows,
+                          E.screencols);
     E.screenrows -= 2; /* Get room for status bar. */
 }
 
@@ -1335,7 +1341,7 @@ int main(int argc, char** argv) {
     init();
     select_syntax_highlight(argv[1]);
     open_file(argv[1]);
-    raw_mode rm;
+    term::raw_mode rm;
 
     set_status("HELP: Ctrl-S = save | Ctrl-Q = quit | Ctrl-F = find");
     do {
