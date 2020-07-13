@@ -264,7 +264,7 @@ namespace kilopp
         E.statusmsg_time = time(nullptr);
     }
 
-    constexpr const char *WELCOME = "Kilo editor -- verison " KILO_VERSION "\x1b[0K\r\n";
+    constexpr std::string_view WELCOME("Kilo editor -- verison " KILO_VERSION "\x1b[0K\r\n");
 
     /* =========================== Syntax highlights DB =========================
  *
@@ -1056,8 +1056,7 @@ namespace kilopp
                 if (E.row.size() == 0 && y == E.screenrows / 3)
                 {
 
-                    auto welcomelen = strlen(WELCOME);
-                    int padding = (E.screencols - welcomelen) / 2;
+                    int padding = (E.screencols - WELCOME.size()) / 2;
                     if (padding)
                     {
                         output << '~';
