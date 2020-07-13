@@ -43,6 +43,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <fstream>
+#include <iostream>
 #include <memory>
 #include <signal.h>
 #include <sstream>
@@ -122,8 +123,8 @@ private:
 };
 
 struct syntax {
-    std::vector<const char*> extensions;
-    std::vector<const char*> keywords;
+    std::vector<std::string_view> extensions;
+    std::vector<std::string_view> keywords;
     char singleline_comment_start[3];
     char multiline_comment_start[3];
     char multiline_comment_end[3];
@@ -265,8 +266,8 @@ constexpr std::string_view WELCOME("Kilo editor -- verison " KILO_VERSION
  * comments delimiters and flags. */
 std::array<struct syntax, 1> HLDB = {
     {/* C / C++ */
-     std::vector<const char*>{".c", ".h", ".cpp", ".hpp", ".cc"},
-     std::vector<const char*>{
+     std::vector<std::string_view>{".c", ".h", ".cpp", ".hpp", ".cc"},
+     std::vector<std::string_view>{
          /* C Keywords */
          "auto", "break", "case", "continue", "default", "do", "else", "enum",
          "extern", "for", "goto", "if", "register", "return", "sizeof",
@@ -595,17 +596,19 @@ void update_syntax(erow& row, size_t row_index) {
         /* Handle keywords and lib calls */
         if (prev_sep) {
 
-            for (const auto& word : keywords) {
-                int klen = strlen(word);
-                int kw2 = word[klen - 1] == '|';
-                if (kw2)
-                    klen--;
+            for (auto word : keywords) {
+                const auto kw2 = word[word.size() - 1] == '|';
+                if (kw2) {
+                    word.remove_suffix(1);
+                }
 
-                if (!memcmp(p, word, klen) && is_separator(*(p + klen))) {
+                if (word == std::string_view(p, word.size()) &&
+                    is_separator(*(p + word.size()))) {
                     /* Keyword */
-                    memset(row.hl() + i, kw2 ? HL_KEYWORD2 : HL_KEYWORD1, klen);
-                    p += klen;
-                    i += klen;
+                    memset(row.hl() + i, kw2 ? HL_KEYWORD2 : HL_KEYWORD1,
+                           word.size());
+                    p += word.size();
+                    i += word.size();
                     prev_sep = 0;
                     break;
                 }
