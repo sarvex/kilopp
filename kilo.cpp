@@ -111,9 +111,11 @@ namespace kilopp
             }
         }
 
+        // This overload is for string literals which size if known is compile time.
         template <std::size_t N>
         void write_string(const char (&buffer)[N])
         {
+            // Do not write the nullptr termination character
             if (::write(fd, buffer, N - 1) == -1)
             {
                 throw std::runtime_error("Write error");
@@ -149,8 +151,8 @@ namespace kilopp
         erow(std::string &&line) : rsize(0),
                                    chars(std::move(line)),
                                    hl_oc(0),
-                                   m_hl(NULL, ::free),
-                                   m_render(NULL, ::free)
+                                   m_hl(nullptr, ::free),
+                                   m_render(nullptr, ::free)
         {
         }
 
@@ -199,7 +201,7 @@ namespace kilopp
         std::string filename;  /* Currently open filename */
         std::string status_message;
         time_t statusmsg_time;
-        const struct syntax *syntax; /* Current syntax highlight, or NULL. */
+        const struct syntax *syntax; /* Current syntax highlight, or nullptr. */
     };
 
     static struct config E;
@@ -239,7 +241,7 @@ namespace kilopp
         std::string args(T first, Args... more)
         {
             output << first;
-            return args(more...);
+            return std::move(args(more...));
         }
 
         std::string args() { return std::move(output.str()); }
@@ -251,7 +253,7 @@ namespace kilopp
     template <typename... Args>
     constexpr std::string format(Args... args)
     {
-        return output().args(args...);
+        return std::move(output().args(args...));
     }
 
     template <typename... Args>
@@ -259,7 +261,7 @@ namespace kilopp
     {
         output o;
         E.status_message = std::move(o.args(args...));
-        E.statusmsg_time = time(NULL);
+        E.statusmsg_time = time(nullptr);
     }
 
     constexpr const char *WELCOME = "Kilo editor -- verison " KILO_VERSION "\x1b[0K\r\n";
@@ -522,7 +524,7 @@ namespace kilopp
 
     constexpr bool is_separator(int c)
     {
-        return c == '\0' || isspace(c) || strchr(",.()+-/*=~%[];", c) != NULL;
+        return c == '\0' || isspace(c) || strchr(",.()+-/*=~%[];", c) != nullptr;
     }
 
     /* Return true if the specified row last char is part of a multi line comment
@@ -542,7 +544,7 @@ namespace kilopp
         row.realloc_hl();
         memset(row.hl(), HL_NORMAL, row.rsize);
 
-        if (E.syntax == NULL)
+        if (E.syntax == nullptr)
             return; /* No syntax, everything is HL_NORMAL. */
 
         int i, prev_sep, in_string, in_comment;
@@ -884,7 +886,7 @@ namespace kilopp
     {
         const auto filerow = E.rowoff + E.cy;
         const auto filecol = E.coloff + E.cx;
-        erow *row = (filerow >= E.row.size()) ? NULL : &E.row[filerow];
+        erow *row = (filerow >= E.row.size()) ? nullptr : &E.row[filerow];
 
         /* If the row where the cursor is currently located does not exist in our
      * logical representaion of the file, add enough empty rows as needed. */
@@ -908,7 +910,7 @@ namespace kilopp
     {
         const auto filerow = E.rowoff + E.cy;
         auto filecol = E.coloff + E.cx;
-        erow *row = (filerow >= E.row.size()) ? NULL : &E.row[filerow];
+        erow *row = (filerow >= E.row.size()) ? nullptr : &E.row[filerow];
 
         if (!row)
         {
@@ -954,7 +956,7 @@ namespace kilopp
     {
         const auto filerow = E.rowoff + E.cy;
         auto filecol = E.coloff + E.cx;
-        erow *row = (filerow >= E.row.size()) ? NULL : &E.row[filerow];
+        erow *row = (filerow >= E.row.size()) ? nullptr : &E.row[filerow];
 
         if (!row || (filecol == 0 && filerow == 0))
             return;
@@ -966,7 +968,7 @@ namespace kilopp
             auto row_index = filerow - 1;
             append_to_row(E.row[row_index], row->chars.c_str(), row_index);
             delete_row(filerow);
-            row = NULL;
+            row = nullptr;
             if (E.cy == 0)
                 E.rowoff--;
             else
@@ -1149,7 +1151,7 @@ namespace kilopp
 
         /* Second row depends on E.statusmsg and the status message update time. */
         output << "\x1b[0K";
-        if (!E.status_message.empty() && time(NULL) - E.statusmsg_time < 5)
+        if (!E.status_message.empty() && time(nullptr) - E.statusmsg_time < 5)
             output << E.status_message; //, msglen <= E.screencols ? msglen : E.screencols);
 
         /* Put cursor at its current position. Note that the horizontal position
@@ -1157,7 +1159,7 @@ namespace kilopp
      * because of TABs. */
         auto cx = 1;
         const auto filerow = E.rowoff + E.cy;
-        erow *row = (filerow >= E.row.size()) ? NULL : &E.row[filerow];
+        erow *row = (filerow >= E.row.size()) ? nullptr : &E.row[filerow];
         if (row)
         {
             for (auto j = E.coloff; j < (E.cx + E.coloff); j++)
@@ -1185,7 +1187,7 @@ namespace kilopp
         int last_match = -1;    /* Last line where a match was found. -1 for none. */
         int find_next = 0;      /* if 1 search next, if -1 search prev. */
         int saved_hl_line = -1; /* No saved HL */
-        char *saved_hl = NULL;
+        char *saved_hl = nullptr;
 
 #define FIND_RESTORE_HL                                                              \
     do                                                                               \
@@ -1194,7 +1196,7 @@ namespace kilopp
         {                                                                            \
             memcpy(E.row[saved_hl_line].hl(), saved_hl, E.row[saved_hl_line].rsize); \
             free(saved_hl);                                                          \
-            saved_hl = NULL;                                                         \
+            saved_hl = nullptr;                                                      \
         }                                                                            \
     } while (0)
 
@@ -1251,7 +1253,7 @@ namespace kilopp
                 find_next = 1;
             if (find_next)
             {
-                char *match = NULL;
+                char *match = nullptr;
                 int match_offset = 0;
                 int current = last_match;
 
@@ -1309,7 +1311,7 @@ namespace kilopp
         auto filerow = E.rowoff + E.cy;
         auto filecol = E.coloff + E.cx;
         size_t rowlen;
-        erow *row = (filerow >= E.row.size()) ? NULL : &E.row[filerow];
+        erow *row = (filerow >= E.row.size()) ? nullptr : &E.row[filerow];
 
         switch (key)
         {
@@ -1393,7 +1395,7 @@ namespace kilopp
         /* Fix cx if the current line has not enough chars. */
         filerow = E.rowoff + E.cy;
         filecol = E.coloff + E.cx;
-        row = (filerow >= E.row.size()) ? NULL : &E.row[filerow];
+        row = (filerow >= E.row.size()) ? nullptr : &E.row[filerow];
         rowlen = row ? row->chars.size() : 0;
         if (filecol > rowlen)
         {
@@ -1515,7 +1517,7 @@ namespace kilopp
         E.rowoff = 0;
         E.coloff = 0;
         E.dirty = false;
-        E.syntax = NULL;
+        E.syntax = nullptr;
         update_window_size();
         signal(SIGWINCH, signal_handler);
     }
