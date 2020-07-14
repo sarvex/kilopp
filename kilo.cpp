@@ -39,6 +39,7 @@
 #endif
 
 #include <array>
+#include <bitset>
 #include <ctype.h>
 #include <errno.h>
 #include <fcntl.h>
@@ -76,8 +77,7 @@ enum class highlight : unsigned char {
     match, /* Search match. */
 };
 
-#define HL_HIGHLIGHT_STRINGS (1 << 0)
-#define HL_HIGHLIGHT_NUMBERS (1 << 1)
+enum class highlight_flags { strings = 1, numbers = 2 };
 
 namespace kilopp {
 
@@ -130,7 +130,7 @@ struct syntax {
     std::string_view singleline_comment_start;
     std::string_view multiline_comment_start;
     std::string_view multiline_comment_end;
-    int flags;
+    std::bitset<2> flags;
 };
 
 /* This structure represents a single line of the file we are editing. */
@@ -262,7 +262,7 @@ std::array<struct syntax, 1> HLDB = {
          /* C types */
          "int|", "long|", "double|", "float|", "char|", "unsigned|", "signed|",
          "void|", "short|", "auto|", "const|", "bool|"},
-     "//", "/*", "*/", HL_HIGHLIGHT_STRINGS | HL_HIGHLIGHT_NUMBERS}};
+     "//", "/*", "*/", std::bitset<2>("11")}};
 
 /* ======================= Low level terminal handling ====================== */
 
