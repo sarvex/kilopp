@@ -64,15 +64,17 @@
 #include <vector>
 
 /* Syntax highlight types */
-#define HL_NORMAL 0
-#define HL_NONPRINT 1
-#define HL_COMMENT 2   /* Single line comment. */
-#define HL_MLCOMMENT 3 /* Multi-line comment. */
-#define HL_KEYWORD1 4
-#define HL_KEYWORD2 5
-#define HL_STRING 6
-#define HL_NUMBER 7
-#define HL_MATCH 8 /* Search match. */
+enum class highlight : unsigned char {
+    normal,
+    nonprint,
+    comment,   /* Single line comment. */
+    mlcomment, /* Multi-line comment. */
+    keyword1,
+    keyword2,
+    string,
+    number,
+    match, /* Search match. */
+};
 
 #define HL_HIGHLIGHT_STRINGS (1 << 0)
 #define HL_HIGHLIGHT_NUMBERS (1 << 1)
@@ -142,13 +144,13 @@ struct erow {
     erow(erow&& other) = default;
     erow& operator=(erow&& other) = default;
 
-    unsigned char* hl() { return m_hl.get(); }
-    const unsigned char* hl() const { return m_hl.get(); }
+    highlight* hl() { return m_hl.get(); }
+    const highlight* hl() const { return m_hl.get(); }
     char* render() { return m_render.get(); }
     const char* render() const { return m_render.get(); }
     void realloc_hl() {
         const auto old = m_hl.release();
-        m_hl.reset(static_cast<unsigned char*>(realloc(old, rsize)));
+        m_hl.reset(static_cast<highlight*>(realloc(old, rsize)));
     }
     void alloc_render(size_t size) {
         m_render.reset(static_cast<char*>(malloc(size)));
@@ -159,7 +161,7 @@ struct erow {
     int hl_oc;         /* Row had open comment at end in last syntax highlight
                        check. */
 private:
-    std::unique_ptr<unsigned char, void (*)(void*)>
+    std::unique_ptr<highlight, void (*)(void*)>
         m_hl; /* Syntax highlight type for each character in render.*/
     std::unique_ptr<char, void (*)(void*)>
         m_render; /* Row content "rendered" for screen (for TABs). */
@@ -481,7 +483,8 @@ constexpr bool is_separator(int c) {
  * that starts at this row or at one before, and does not end at the end
  * of the row but spawns to the next row. */
 bool has_open_comment(const erow& row) {
-    return (row.hl() && row.rsize && row.hl()[row.rsize - 1] == HL_MLCOMMENT &&
+    return (row.hl() && row.rsize &&
+            row.hl()[row.rsize - 1] == highlight::mlcomment &&
             (row.rsize < 2 || (row.render()[row.rsize - 2] != '*' ||
                                row.render()[row.rsize - 1] != '/')));
 }
@@ -490,10 +493,10 @@ bool has_open_comment(const erow& row) {
  * to the right syntax highlight type (HL_* defines). */
 void update_syntax(erow& row, size_t row_index) {
     row.realloc_hl();
-    memset(row.hl(), HL_NORMAL, row.rsize);
+    std::fill_n(row.hl(), row.rsize, highlight::normal);
 
     if (E.syntax == nullptr)
-        return; /* No syntax, everything is HL_NORMAL. */
+        return; /* No syntax, everything is highlight::normal. */
 
     int i, prev_sep, in_string, in_comment;
     char* p;
@@ -522,15 +525,15 @@ void update_syntax(erow& row, size_t row_index) {
         /* Handle // comments. */
         if (prev_sep && *p == scs[0] && *(p + 1) == scs[1]) {
             /* From here to end is a comment */
-            memset(row.hl() + i, HL_COMMENT, row.chars.size() - i);
+            std::fill_n(row.hl() + i, row.chars.size() - i, highlight::comment);
             return;
         }
 
         /* Handle multi line comments. */
         if (in_comment) {
-            row.hl()[i] = HL_MLCOMMENT;
+            row.hl()[i] = highlight::mlcomment;
             if (*p == mce[0] && *(p + 1) == mce[1]) {
-                row.hl()[i + 1] = HL_MLCOMMENT;
+                row.hl()[i + 1] = highlight::mlcomment;
                 p += 2;
                 i += 2;
                 in_comment = 0;
@@ -543,8 +546,8 @@ void update_syntax(erow& row, size_t row_index) {
                 continue;
             }
         } else if (*p == mcs[0] && *(p + 1) == mcs[1]) {
-            row.hl()[i] = HL_MLCOMMENT;
-            row.hl()[i + 1] = HL_MLCOMMENT;
+            row.hl()[i] = highlight::mlcomment;
+            row.hl()[i + 1] = highlight::mlcomment;
             p += 2;
             i += 2;
             in_comment = 1;
@@ -554,9 +557,9 @@ void update_syntax(erow& row, size_t row_index) {
 
         /* Handle "" and '' */
         if (in_string) {
-            row.hl()[i] = HL_STRING;
+            row.hl()[i] = highlight::string;
             if (*p == '\\') {
-                row.hl()[i + 1] = HL_STRING;
+                row.hl()[i + 1] = highlight::string;
                 p += 2;
                 i += 2;
                 prev_sep = 0;
@@ -570,7 +573,7 @@ void update_syntax(erow& row, size_t row_index) {
         } else {
             if (*p == '"' || *p == '\'') {
                 in_string = *p;
-                row.hl()[i] = HL_STRING;
+                row.hl()[i] = highlight::string;
                 p++;
                 i++;
                 prev_sep = 0;
@@ -580,7 +583,7 @@ void update_syntax(erow& row, size_t row_index) {
 
         /* Handle non printable chars. */
         if (!isprint(*p)) {
-            row.hl()[i] = HL_NONPRINT;
+            row.hl()[i] = highlight::nonprint;
             p++;
             i++;
             prev_sep = 0;
@@ -588,9 +591,10 @@ void update_syntax(erow& row, size_t row_index) {
         }
 
         /* Handle numbers */
-        if ((isdigit(*p) && (prev_sep || row.hl()[i - 1] == HL_NUMBER)) ||
-            (*p == '.' && i > 0 && row.hl()[i - 1] == HL_NUMBER)) {
-            row.hl()[i] = HL_NUMBER;
+        if ((isdigit(*p) &&
+             (prev_sep || row.hl()[i - 1] == highlight::number)) ||
+            (*p == '.' && i > 0 && row.hl()[i - 1] == highlight::number)) {
+            row.hl()[i] = highlight::number;
             p++;
             i++;
             prev_sep = 0;
@@ -609,8 +613,9 @@ void update_syntax(erow& row, size_t row_index) {
                 if (word == std::string_view(p, word.size()) &&
                     is_separator(*(p + word.size()))) {
                     /* Keyword */
-                    memset(row.hl() + i, kw2 ? HL_KEYWORD2 : HL_KEYWORD1,
-                           word.size());
+                    std::fill_n(
+                        row.hl() + i, word.size(),
+                        (kw2 ? highlight::keyword1 : highlight::keyword2));
                     p += word.size();
                     i += word.size();
                     prev_sep = 0;
@@ -635,20 +640,20 @@ void update_syntax(erow& row, size_t row_index) {
 }
 
 /* Maps syntax highlight token types to terminal colors. */
-constexpr int syntax_to_color(int hl) {
+constexpr int syntax_to_color(highlight hl) {
     switch (hl) {
-    case HL_COMMENT:
-    case HL_MLCOMMENT:
+    case highlight::comment:
+    case highlight::mlcomment:
         return 36; /* cyan */
-    case HL_KEYWORD1:
+    case highlight::keyword2:
         return 33; /* yellow */
-    case HL_KEYWORD2:
+    case highlight::keyword1:
         return 32; /* green */
-    case HL_STRING:
+    case highlight::string:
         return 35; /* magenta */
-    case HL_NUMBER:
+    case highlight::number:
         return 31; /* red */
-    case HL_MATCH:
+    case highlight::match:
         return 34; /* blu */
     default:
         return 37; /* white */
@@ -963,7 +968,7 @@ void refresh_screen(void) {
             const auto c = r->render() + E.coloff;
             const auto hl = r->hl() + E.coloff;
             for (size_t j = 0; j < len; j++) {
-                if (hl[j] == HL_NONPRINT) {
+                if (hl[j] == highlight::nonprint) {
                     char sym;
                     output << "\x1b[7m";
                     if (c[j] <= 26)
@@ -972,7 +977,7 @@ void refresh_screen(void) {
                         sym = '?';
                     output << sym;
                     output << "\x1b[0m";
-                } else if (hl[j] == HL_NORMAL) {
+                } else if (hl[j] == highlight::normal) {
                     if (current_color != -1) {
                         output << "\x1b[39m";
                         current_color = -1;
@@ -1131,7 +1136,8 @@ void find(int fd) {
                     saved_hl_line = current;
                     saved_hl = static_cast<char*>(malloc(row->rsize));
                     memcpy(saved_hl, row->hl(), row->rsize);
-                    memset(row->hl() + match_offset, HL_MATCH, qlen);
+                    memset(row->hl() + match_offset,
+                           static_cast<int>(highlight::match), qlen);
                 }
                 E.cy = 0;
                 E.cx = match_offset;
