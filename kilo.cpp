@@ -34,10 +34,6 @@
 
 #define KILO_VERSION "0.0.1"
 
-#ifdef __linux__
-#define _POSIX_C_SOURCE 200809L
-#endif
-
 #include <array>
 #include <bitset>
 #include <fcntl.h>
@@ -340,7 +336,8 @@ private:
  * escape sequences. */
 int read_key(int fd) {
     int nread;
-    char c, seq[3];
+    char c;
+    std::array<char, 3> seq;
     while ((nread = read(fd, &c, 1)) == 0)
         ;
     if (nread == -1)
@@ -350,16 +347,16 @@ int read_key(int fd) {
         switch (c) {
         case ESC: /* escape sequence */
             /* If this is just an ESC, we'll timeout here. */
-            if (read(fd, seq, 1) == 0)
+            if (read(fd, seq.data(), 1) == 0)
                 return ESC;
-            if (read(fd, seq + 1, 1) == 0)
+            if (read(fd, seq.data() + 1, 1) == 0)
                 return ESC;
 
             /* ESC [ sequences. */
             if (seq[0] == '[') {
                 if (seq[1] >= '0' && seq[1] <= '9') {
                     /* Extended escape, read additional byte. */
-                    if (read(fd, seq + 2, 1) == 0)
+                    if (read(fd, seq.data() + 2, 1) == 0)
                         return ESC;
                     if (seq[2] == '~') {
                         switch (seq[1]) {
@@ -410,7 +407,7 @@ int read_key(int fd) {
  * cursor is stored at *rows and *cols and 0 is returned. */
 std::pair<int, int> get_cursor_position(int ifd, int ofd) {
     auto result = std::pair<int, int>();
-    char buf[32];
+    std::array<char, 32> buf;
     unsigned int i = 0;
 
     /* Report cursor location */
@@ -418,7 +415,7 @@ std::pair<int, int> get_cursor_position(int ifd, int ofd) {
 
     /* Read the response: ESC [ rows ; cols R */
     while (i < sizeof(buf) - 1) {
-        if (read(ifd, buf + i, 1) != 1)
+        if (read(ifd, buf.data() + i, 1) != 1)
             break;
         if (buf[i] == 'R')
             break;
@@ -431,7 +428,7 @@ std::pair<int, int> get_cursor_position(int ifd, int ofd) {
         throw std::runtime_error{"ioctl failed"};
     }
 
-    if (sscanf(buf + 2, "%d;%d", &result.first, &result.second) != 2) {
+    if (sscanf(buf.data() + 2, "%d;%d", &result.first, &result.second) != 2) {
         throw std::runtime_error{"ioctl failed"};
     }
 
