@@ -489,7 +489,8 @@ void update_syntax(erow& row, size_t row_index) {
     if (E.syntax == nullptr)
         return; /* No syntax, everything is highlight::normal. */
 
-    int i, prev_sep, in_string, in_comment;
+    int i;
+    bool prev_sep, in_string, in_comment;
     char* p;
     const auto& keywords = E.syntax->keywords;
     auto scs = E.syntax->singleline_comment_start;
@@ -503,14 +504,14 @@ void update_syntax(erow& row, size_t row_index) {
         p++;
         i++;
     }
-    prev_sep = 1;   /* Tell the parser if 'i' points to start of word. */
-    in_string = 0;  /* Are we inside "" or '' ? */
-    in_comment = 0; /* Are we inside multi-line comment? */
+    prev_sep = true;   /* Tell the parser if 'i' points to start of word. */
+    in_string = false;  /* Are we inside "" or '' ? */
+    in_comment = false; /* Are we inside multi-line comment? */
 
     /* If the previous line has an open comment, this line starts
      * with an open comment state. */
     if (row_index > 0 && has_open_comment(E.row[row_index - 1]))
-        in_comment = 1;
+        in_comment = true;
 
     while (*p) {
         /* Handle // comments. */
@@ -527,11 +528,11 @@ void update_syntax(erow& row, size_t row_index) {
                 row.hl()[i + 1] = highlight::mlcomment;
                 p += 2;
                 i += 2;
-                in_comment = 0;
-                prev_sep = 1;
+                in_comment = false;
+                prev_sep = true;
                 continue;
             } else {
-                prev_sep = 0;
+                prev_sep = false;
                 p++;
                 i++;
                 continue;
@@ -541,8 +542,8 @@ void update_syntax(erow& row, size_t row_index) {
             row.hl()[i + 1] = highlight::mlcomment;
             p += 2;
             i += 2;
-            in_comment = 1;
-            prev_sep = 0;
+            in_comment = true;
+            prev_sep = false;
             continue;
         }
 
@@ -553,11 +554,11 @@ void update_syntax(erow& row, size_t row_index) {
                 row.hl()[i + 1] = highlight::string;
                 p += 2;
                 i += 2;
-                prev_sep = 0;
+                prev_sep = false;
                 continue;
             }
             if (*p == in_string)
-                in_string = 0;
+                in_string = false;
             p++;
             i++;
             continue;
@@ -567,7 +568,7 @@ void update_syntax(erow& row, size_t row_index) {
                 row.hl()[i] = highlight::string;
                 p++;
                 i++;
-                prev_sep = 0;
+                prev_sep = false;
                 continue;
             }
         }
@@ -577,7 +578,7 @@ void update_syntax(erow& row, size_t row_index) {
             row.hl()[i] = highlight::nonprint;
             p++;
             i++;
-            prev_sep = 0;
+            prev_sep = false;
             continue;
         }
 
@@ -588,7 +589,7 @@ void update_syntax(erow& row, size_t row_index) {
             row.hl()[i] = highlight::number;
             p++;
             i++;
-            prev_sep = 0;
+            prev_sep = false;
             continue;
         }
 
@@ -609,7 +610,7 @@ void update_syntax(erow& row, size_t row_index) {
                         (kw2 ? highlight::keyword1 : highlight::keyword2));
                     p += word.size();
                     i += word.size();
-                    prev_sep = 0;
+                    prev_sep = false;
                     break;
                 }
             }
